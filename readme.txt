@@ -21,6 +21,10 @@ The content will be placed into in item.md file, in YAML + {post_content} format
 
 This is not a classic backup, rather an export, to have your content in a readable format for the future. It can't be imported to WordPress (yet).
 
+== Requirements ==
+
+* minimum PHP version: 5.3
+* YAML PHP plugin
 
 == Installation ==
 
@@ -36,6 +40,6 @@ Version numbering logic:
 * every ..C indicates bugfixes for A.B version.
 
 = 0.1 =
-*2015-07-16*
+*2015-12-10*
 
 * first stable release
