@@ -1,6 +1,6 @@
 === wp-flatbackups ===
 Contributors: cadeyrn
-Donate link:
+Donate link: https://paypal.me/petermolnar/3
 Tags: backup, YAML, flat files
 Requires at least: 3.0
 Tested up to: 4.4

@@ -2,7 +2,7 @@
     "name": "petermolnar/wp-flatbackups",
     "description": "WordPress plugin to auto-export WordPress content to flat YAML + HTML files",
     "require": {
-		"php": ">=5.3.0",
+        "php": ">=5.3.0",
         "ext-yaml": "^1.2"
     },
     "license": "GPLv3",
@@ -10,7 +10,7 @@
         {
             "name": "Peter Molnar",
             "email": "hello@petermolnar.eu",
-			"homepage": "https://petermolnar.eu"
+            "homepage": "https://petermolnar.eu"
         }
     ]
 }

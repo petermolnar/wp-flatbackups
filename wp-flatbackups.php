@@ -31,12 +31,21 @@ if (!class_exists('WP_FLATBACKUPS')):
 class WP_FLATBACKUPS {
 
 	public function __construct () {
-		if (!function_exists('yaml_emit')) {
-			static::debug('`yaml_emit` function missing. Please install the YAML extension; otherwise this plugin will not work');
+		register_activation_hook( __FILE__ , array( &$this, 'plugin_activate' ) );
+		add_action( 'wp_footer', array( &$this, 'export_yaml'));
+	}
+
+	/**
+	 * activate hook
+	 */
+	public static function plugin_activate() {
+		if ( version_compare( phpversion(), 5.3, '<' ) ) {
+			die( 'The minimum PHP version required for this plugin is 5.3' );
 		}
 
-		add_action( 'wp_footer', array( &$this, 'export_yaml'));
-
+		if (!function_exists('yaml_emit')) {
+			die('`yaml_emit` function missing. Please install the YAML extension; otherwise this plugin will not work');
+		}
 	}
 
 	/**
@@ -99,7 +108,7 @@ class WP_FLATBACKUPS {
 				$attachment_path = get_attached_file( $aid );
 				$attachment_file = basename( $attachment_path);
 				$target_file = $flatdir . DIRECTORY_SEPARATOR . $attachment_file;
-				static::debug ('should ' . $post->post_name . ' have this attachment?: ' . $attachment_file );
+				//static::debug ('should ' . $post->post_name . ' have this attachment?: ' . $attachment_file );
 				if ( !is_file($target_file)) {
 					if (!link( $attachment_path, $target_file )) {
 						static::debug("could not hardlink '$attachment_path' to '$target_file'; trying to copy");
@@ -152,7 +161,7 @@ class WP_FLATBACKUPS {
 				$cout = yaml_emit($c, YAML_UTF8_ENCODING );
 				$cout .= "---\n" . $comment->comment_content;
 
-				static::debug ('Exporting comment #' . $comment->comment_ID. ' to ' . $cfile );
+				//static::debug ('Exporting comment #' . $comment->comment_ID. ' to ' . $cfile );
 				file_put_contents ($cfile, $cout);
 				touch ( $cfile, $c_timestamp );
 			}
@@ -165,7 +174,7 @@ class WP_FLATBACKUPS {
 		$out = static::yaml();
 
 		// write log
-		static::debug ('Exporting #' . $post->ID . ', ' . $post->post_name . ' to ' . $flatfile );
+		//static::debug ('Exporting #' . $post->ID . ', ' . $post->post_name . ' to ' . $flatfile );
 		file_put_contents ($flatfile, $out);
 		touch ( $flatfile, $post_timestamp );
 		return true;
@@ -391,18 +400,6 @@ class WP_FLATBACKUPS {
 
 		error_log(  __CLASS__ . " => " . $message );
 	}
-
-	/**
-	 * debug log messages, if needed
-	 *
-	public static function debug( $message) {
-		if (is_object($message) || is_array($message))
-			$message = json_encode($message);
-
-		if ( defined('WP_DEBUG') && WP_DEBUG == true )
-			error_log ( __CLASS__ . ' => ' . $message);
-	}
-	*/
 
 	/**
 	 *
