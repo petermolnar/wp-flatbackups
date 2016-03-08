@@ -3,7 +3,7 @@
 Plugin Name: wp-flatbackups
 Plugin URI: https://github.com/petermolnar/wp-flatbackups
 Description: auto-export WordPress content to flat YAML + Markdown files
-Version: 0.1
+Version: 0.1.1
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
@@ -54,7 +54,7 @@ class WP_FLATBACKUPS {
 	public static function export_yaml () {
 
 		if (!function_exists('yaml_emit')) {
-			static::debug('`yaml_emit` function missing. Please install the YAML extension; otherwise this plugin will not work');
+			static::debug('`yaml_emit` function missing. Please install the YAML extension; otherwise this plugin will not work', 4);
 			return false;
 		}
 
@@ -83,7 +83,7 @@ class WP_FLATBACKUPS {
 		foreach ( $mkdir as $dir ) {
 			if ( !is_dir($dir)) {
 				if (!mkdir( $dir )) {
-					static::debug_log('Failed to create ' . $dir . ', exiting YAML creation');
+					static::debug_log('Failed to create ' . $dir . ', exiting YAML creation', 4);
 					return false;
 				}
 			}
@@ -108,12 +108,12 @@ class WP_FLATBACKUPS {
 				$attachment_path = get_attached_file( $aid );
 				$attachment_file = basename( $attachment_path);
 				$target_file = $flatdir . DIRECTORY_SEPARATOR . $attachment_file;
-				//static::debug ('should ' . $post->post_name . ' have this attachment?: ' . $attachment_file );
+				static::debug ('should ' . $post->post_name . ' have this attachment?: ' . $attachment_file, 7 );
 				if ( !is_file($target_file)) {
 					if (!link( $attachment_path, $target_file )) {
-						static::debug("could not hardlink '$attachment_path' to '$target_file'; trying to copy");
+						static::debug("could not hardlink '$attachment_path' to '$target_file'; trying to copy", 5);
 						if (!copy($attachment_path, $target_file )) {
-							static::debug("could not copy '$attachment_path' to '$target_file'; saving attachment failed!");
+							static::debug("could not copy '$attachment_path' to '$target_file'; saving attachment failed!", 4);
 						}
 					}
 				}
@@ -161,7 +161,7 @@ class WP_FLATBACKUPS {
 				$cout = yaml_emit($c, YAML_UTF8_ENCODING );
 				$cout .= "---\n" . $comment->comment_content;
 
-				//static::debug ('Exporting comment #' . $comment->comment_ID. ' to ' . $cfile );
+				static::debug ('Exporting comment #' . $comment->comment_ID. ' to ' . $cfile, 6 );
 				file_put_contents ($cfile, $cout);
 				touch ( $cfile, $c_timestamp );
 			}
@@ -174,7 +174,7 @@ class WP_FLATBACKUPS {
 		$out = static::yaml();
 
 		// write log
-		//static::debug ('Exporting #' . $post->ID . ', ' . $post->post_name . ' to ' . $flatfile );
+		static::debug ('Exporting #' . $post->ID . ', ' . $post->post_name . ' to ' . $flatfile, 6 );
 		file_put_contents ($flatfile, $out);
 		touch ( $flatfile, $post_timestamp );
 		return true;
@@ -188,7 +188,7 @@ class WP_FLATBACKUPS {
 	public static function yaml ( $postid = false ) {
 
 		if (!function_exists('yaml_emit')) {
-			static::debug('`yaml_emit` function missing. Please install the YAML extension; otherwise this plugin will not work');
+			static::debug('`yaml_emit` function missing. Please install the YAML extension; otherwise this plugin will not work', 4);
 			return false;
 		}
 
@@ -382,23 +382,54 @@ class WP_FLATBACKUPS {
 	 *
 	 * @param string $message
 	 * @param int $level
+	 *
+	 * @output log to syslog | wp_die on high level
+	 * @return false on not taking action, true on log sent
 	 */
-	static function debug( $message, $level = LOG_NOTICE ) {
+	public static function debug( $message, $level = LOG_NOTICE ) {
+		if ( empty( $message ) )
+			return false;
+
 		if ( @is_array( $message ) || @is_object ( $message ) )
 			$message = json_encode($message);
 
+		$levels = array (
+			LOG_EMERG => 0, // system is unusable
+			LOG_ALERT => 1, // Alert 	action must be taken immediately
+			LOG_CRIT => 2, // Critical 	critical conditions
+			LOG_ERR => 3, // Error 	error conditions
+			LOG_WARNING => 4, // Warning 	warning conditions
+			LOG_NOTICE => 5, // Notice 	normal but significant condition
+			LOG_INFO => 6, // Informational 	informational messages
+			LOG_DEBUG => 7, // Debug 	debug-level messages
+		);
 
-		switch ( $level ) {
-			case LOG_ERR :
-				wp_die( '<h1>Error:</h1>' . '<p>' . $message . '</p>' );
-				exit;
-			default:
-				if ( !defined( 'WP_DEBUG' ) || WP_DEBUG != true )
-					return;
-				break;
+		// number for number based comparison
+		// should work with the defines only, this is just a make-it-sure step
+		$level_ = $levels [ $level ];
+
+		// in case WordPress debug log has a minimum level
+		if ( defined ( 'WP_DEBUG_LEVEL' ) ) {
+			$wp_level = $levels [ WP_DEBUG_LEVEL ];
+			if ( $level_ > $wp_level ) {
+				return false;
+			}
 		}
 
-		error_log(  __CLASS__ . " => " . $message );
+		// ERR, CRIT, ALERT and EMERG
+		if ( 3 >= $level_ ) {
+			wp_die( '<h1>Error:</h1>' . '<p>' . $message . '</p>' );
+			exit;
+		}
+
+		$trace = debug_backtrace();
+		$caller = $trace[1];
+		$parent = $caller['function'];
+
+		if (isset($caller['class']))
+			$parent = $caller['class'] . '::' . $parent;
+
+		return error_log( "{$parent}: {$message}" );
 	}
 
 	/**
