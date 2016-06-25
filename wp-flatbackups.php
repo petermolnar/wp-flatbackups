@@ -3,7 +3,7 @@
 Plugin Name: wp-flatbackups
 Plugin URI: https://github.com/petermolnar/wp-flatbackups
 Description: auto-export WordPress content to flat YAML + Markdown files
-Version: 0.1.1
+Version: 0.2
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
@@ -29,6 +29,8 @@ Required minimum PHP version: 5.3
 if (!class_exists('WP_FLATBACKUPS')):
 
 class WP_FLATBACKUPS {
+
+	const force = true;
 
 	public function __construct () {
 		register_activation_hook( __FILE__ , array( &$this, 'plugin_activate' ) );
@@ -130,7 +132,7 @@ class WP_FLATBACKUPS {
 				$c_timestamp = strtotime( $comment->comment_date );
 				if ( @file_exists($cfile) ) {
 					$cf_timestamp = @filemtime ( $cfile );
-					if ( $c_timestamp == $cf_timestamp ) {
+					if ( $c_timestamp == $cf_timestamp && static::force == false ) {
 						continue;
 					}
 				}
@@ -167,7 +169,7 @@ class WP_FLATBACKUPS {
 			}
 		}
 
-		if ( $file_timestamp == $post_timestamp ) {
+		if ( $file_timestamp == $post_timestamp && static::force == false ) {
 			return true;
 		}
 
@@ -207,21 +209,44 @@ class WP_FLATBACKUPS {
 		if (empty($postdata))
 			return false;
 
-		$excerpt = false;
-		if (isset($postdata['excerpt']) && empty($postdata['excerpt'])) {
-			$excerpt = $postdata['excerpt'];
-			unset($postdata['excerpt']);
+		$out = "{$postdata['post_meta']['permalink']}\n";
+		$out .= "{$postdata['post_meta']['shortlink']}\n";
+
+		if ( isset( $postdata['post_meta']['old_slugs'] ) && ! empty( $postdata['post_meta']['old_slugs'] ) ) {
+			$domain = parse_url( $postdata['post_meta']['permalink'] );
+			foreach ( $postdata['post_meta']['old_slugs'] as $old_slug ) {
+				$out .= "{$domain['scheme']}://{$domain['host']}/{$old_slug}\n";
+			}
 		}
 
-		$content = $postdata['content'];
-		unset($postdata['content']);
+		$out .= "\n";
 
-		$out = yaml_emit($postdata,  YAML_UTF8_ENCODING );
-		if($excerpt) {
-			$out .= "\n" . $excerpt . "\n";
+		if ( isset( $postdata['author'] ) && ! empty( $postdata['author'] ) )
+			$out .= "Written by: {$postdata['author']}\n";
+
+		$out .= "Posted at: {$postdata['date']} (last modified at: {$postdata['modified_date']})\n";
+
+		if (isset($postdata['taxonomy']['tag']) && !empty($postdata['taxonomy']['tag'])) {
+			$tags = array();
+			foreach ( $postdata['taxonomy']['tag'] as $k => $tag ) {
+				array_push( $tags, "#{$tag}" );
+			}
+			$tags = join (', ', $tags);
+
+			$out .= $tags . "\n";
 		}
 
-		$out .= "---\n" . $content;
+		if ( isset( $postdata['title'] ) && ! empty( $postdata['title'] ) ) {
+			$out .= "\n{$postdata['title']}\n";
+			$out .= str_repeat( "=", strlen( $postdata['title'] ) ) . "\n";
+		}
+
+		$out .= "\n";
+
+		if (isset($postdata['excerpt']) && !empty($postdata['excerpt']))
+			$out .= $postdata['excerpt'] . "\n";
+
+		$out .= $postdata['content'];
 
 		return $out;
 	}
@@ -274,6 +299,57 @@ class WP_FLATBACKUPS {
 				}
 			}
 		}
+
+		// get rid of wp_upload_dir in self urls
+		$wp_upload_dir = wp_upload_dir();
+		$pattern = "/\({$wp_upload_dir['baseurl']}\/(.*?)\)/";
+		$search = str_replace( '/', '\/', $wp_upload_dir['baseurl'] );
+		$content = preg_replace( "/\({$search}\/(.*?)\)/", '(${1})', $content );
+
+		// get rid of {#img-ID} -s
+		$content = preg_replace( "/\{\#img-[0-9]+\}/", "", $content );
+
+		// get trailing hashtags, if any
+		$hashtags = static::find_hashtag_line( $content );
+		$content = static::maybe_remove_hashtag_line( $content, $hashtags );
+
+		// find links and replace them with footnote versions
+		$pattern = "/\s+(\[([^\s].*?)\]\((.*?)(\s?+[\\\"\'].*?[\\\"\'])?\))/";
+		$matches = array();
+		preg_match_all( $pattern, $content, $matches );
+		// [1] -> array of []()
+		// [2] -> array of []
+		// [3] -> array of ()
+		// [4] -> (maybe) "" titles
+		if ( ! empty( $matches ) && isset( $matches[0] ) && ! empty( $matches[0] ) ) {
+			foreach ( $matches[1] as $cntr => $match ) {
+				$name = trim( $matches[2][$cntr] );
+				$url = trim( $matches[3][$cntr] );
+				$title = "";
+
+				if ( isset( $matches[4][$cntr] ) && !empty( $matches[4][$cntr] ) )
+					$title = " {$matches[4][$cntr]}";
+
+				$footnotes[] = "[{$name}]: {$url}";
+				$content = str_replace ( $match, "[" . trim( $matches[2][$cntr] ) . "]" , $content );
+			}
+
+			$content = $content . join( "\n", $footnotes );
+		}
+
+		// find all second level headers and replace them with underlined version
+		$pattern = "/^##\s?+(.*)$/m";
+		$matches = array();
+		preg_match_all( $pattern, $content, $matches );
+
+		if ( ! empty( $matches ) && isset( $matches[0] ) && ! empty( $matches[0] ) ) {
+			foreach ( $matches[0] as $cntr => $match ) {
+				$title = trim( $matches[1][$cntr] );
+				$content = str_replace ( $match, $title ."\n" . str_repeat( "-", strlen( $title ) ), $content );
+			}
+		}
+
+		// find images and replace them with footnote versions ?
 
 		// get author name
 		$author_id = $post->post_author;
@@ -333,16 +409,16 @@ class WP_FLATBACKUPS {
 
 		// assemble the data
 		$out = array (
-			'title' => trim(get_the_title( $post->ID )),
-			'modified_date' => get_the_modified_time('c', $post->ID),
-			'date' => get_the_time('c', $post->ID),
+			'title' => trim( get_the_title( $post->ID ) ),
+			'modified_date' => get_the_modified_time( 'Y-m-d H:i:s P', $post->ID ),
+			'date' => get_the_time( 'Y-m-d H:i:s P', $post->ID ),
 			'slug' => $post->post_name,
 			'taxonomy' => $post_taxonomies,
 			'post_meta' => $meta,
 			'author' => $author,
 		);
 
-		if($post->post_excerpt && !empty(trim($post->post_excerpt))) {
+		if( $post->post_excerpt && !empty( trim( $post->post_excerpt ) ) ) {
 			$out['excerpt'] = $post->post_excerpt;
 		}
 
@@ -441,6 +517,54 @@ class WP_FLATBACKUPS {
 			return $results [ $index ];
 		else
 			return false;
+	}
+
+	/**
+	 * the last non-empty line of the content could be a list of hashtags, eg.
+	 * #first, #second, #and third hashtag
+	 *
+	 * this function tries to find this line and push it into preg_match array
+	 */
+	public static function find_hashtag_line ( &$content ) {
+
+		$c = explode( "\n", $content );
+
+		$last = false;
+		for ( $i = count($c)-1; $i > 0; $i--) {
+			if ( empty ( trim( $c[ $i ] ) ) ) {
+				continue;
+			}
+			else {
+				$last = $c[ $i ];
+				break;
+			}
+		}
+
+		//static::debug ( "Last line: " . $last );
+		$pattern = "/\#(.*?)(?:,|$|\z|\n)\s?+/";
+
+		$matches = array();
+		preg_match_all( $pattern, $last, $matches);
+
+		if ( ! empty( $matches ) && isset( $matches[0] ) && ! empty( $matches[0] ) )
+			return $matches;
+
+		return false;
+	}
+
+
+	/**
+	 *
+	 */
+	public static function maybe_remove_hashtag_line ( &$content, &$matches = false ) {
+
+		if ( empty( $matches ) )
+			$matches = static::find_hashtag_line( $content );
+
+		if ( false == $matches )
+			return $content;
+
+		return str_replace ( join('', $matches[0]), '', $content );
 	}
 }
 
