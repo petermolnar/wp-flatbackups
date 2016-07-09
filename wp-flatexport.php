@@ -28,7 +28,7 @@ Required minimum PHP version: 5.4
 
 namespace WP_FLATEXPORTS;
 
-define ( 'force', true );
+define ( 'force', false );
 define ( 'basedir', 'flat' );
 define ( 'basefile', 'item.md' );
 define ( 'maxattachments', 100 );
@@ -230,6 +230,13 @@ function plain_text_post ( $postid = false ) {
 		$out .= "{$postdata['author']}\n\n";
 	}
 
+	if ( isset( $postdata['geo'] ) && ! empty( $postdata['geo'] ) ) {
+		$out .= "Location\n";
+		$out .= "--------\n";
+		$out .= "{$postdata['geo']}\n\n";
+	}
+
+
 	if ( ! empty( $postdata['tags'] ) ) {
 		$tags = array();
 		foreach ( $postdata['tags'] as $k => $tag ) {
@@ -356,6 +363,29 @@ function post_content ( &$post ) {
 
 	// find images and replace them with footnote versions ?
 
+	// word-wrap magic
+	/*
+	$fenced_o = array();
+	preg_match_all( "/^```(.*?)[\n\r](.*?)```/mis", $content, $fenced_o );
+
+	file_put_contents('/tmp/fenced.out', var_export($fenced_o, true) );
+
+	$content = wordwrap( $content, 72 );
+
+	$fenced_n = array();
+	preg_match_all( "/^```(.*?)[\n\r](.*?)```/mis", $content, $fenced_n );
+
+	file_put_contents('/tmp/fenced_.out', var_export($fenced_n, true) );
+
+	//debug ( $fenced_n );
+
+	foreach ( array_keys( $fenced_o[0] ) as $k ) {
+		if ( $fenced_o[0][$k] != $fenced_n[0][$k] ) {
+			$content = str_replace ( $fenced_n[0][$k], $fenced_o[0][$k], $content );
+		}
+	}
+	*/
+
 	return $content;
 }
 
@@ -420,6 +450,18 @@ function raw_post_data ( &$post = null ) {
 	// read tags
 	$tags = \wp_get_post_terms( $post->ID, 'post_tag' );
 
+	// geo
+	$geo = '';
+	$lat = \get_post_meta ( $post->ID, 'geo_latitude' , true );
+	$lon = \get_post_meta ( $post->ID, 'geo_longitude' , true );
+	$alt = \get_post_meta ( $post->ID, 'geo_altitude' , true );
+
+	if ( !empty( $lat ) && !empty( $lon ) )
+		$geo = "{$lat},{$lon}";
+
+	if ( !empty( $alt ) )
+		$geo .= "@{$alt}";
+
 	// assemble the data
 	$out = array (
 		'title' => trim( \get_the_title( $post->ID ) ),
@@ -430,47 +472,12 @@ function raw_post_data ( &$post = null ) {
 		'author' => $author,
 		'content' => $content,
 		'excerpt' => trim( $excerpt ),
+		'geo' => $geo,
 		//'reactions' => meta_reaction( $post ),
 	);
 
 	return $out;
 }
-
-
-/**
- *
- *
-function meta_reaction ( &$post ) {
-
-	$url = trim ( get_post_meta( $post->ID, 'webmention_url', true ) );
-	$type = trim ( get_post_meta( $post->ID, 'webmention_type', true ) );
-	$rsvp = trim ( get_post_meta( $post->ID, 'webmention_data', true ) );
-
-	if ( empty( $url ) )
-		return false;
-
-	switch ($type) {
-		case 'from':
-		case 'repost':
-			$prefix = '**FROM:** ';
-			break;
-		case 're':
-		case 'reply':
-		case 'rsvp':
-			$prefix = '**RE:** ';
-			break;
-		default:
-			$prefix = '**URL:** ';
-			break;
-	}
-
-	$r = "{$prefix}${url}";
-	if ( !empty ($rsvp) )
-		$r .= "\n{$rsvp}";
-
-	return $r;
-}
-*/
 
 /**
  * do everything to get the Post object

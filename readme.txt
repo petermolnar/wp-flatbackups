@@ -1,16 +1,13 @@
 === wp-flatexport ===
 Contributors: cadeyrn
-Donate link: https://paypal.me/petermolnar/3
-Tags: plain text, export, longnow
-Requires at least: 3.0
-Tested up to: 4.4.2
+Tags: plain text, export, backup
+Requires at least: 4.2
+Tested up to: 4.5.3
 Stable tag: 0.2
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
-Required minimum PHP version: 5.3
 
 Auto-export all published content on visit to flat, folder + files based structure.
-
 
 == Description ==
 
@@ -25,7 +22,7 @@ Content will be exported to wp-content/flat/{post_slug}/ folder ( one folder per
 The content will be placed into in item.md file. This is a markdown file, with some plain test headers.
 Comments are exported into the same folder, named comment-{comment_id}.md; the format is similar for those as well.
 
-This is not a backup!
+**This is not a backup!**
 The goal of the plugin is to have a portable, plain text, easy to read, easy to copy version of you content on WordPress. Since not all data is exported, your site cannot be reconstructed from these exports.
 
 == Requirements ==
