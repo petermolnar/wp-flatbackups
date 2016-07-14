@@ -3,11 +3,10 @@
 Plugin Name: WP Flat Exports
 Plugin URI: https://github.com/petermolnar/wp-flatexport
 Description: auto-export WordPress contents to folders and plain text + markdown files for longetivity and portability
-Version: 0.2
+Version: 0.3
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
-Required minimum PHP version: 5.4
 */
 
 /*  Copyright 2015 Peter Molnar ( hello@petermolnar.eu )
@@ -32,9 +31,171 @@ define ( 'force', true );
 define ( 'basedir', 'flat' );
 define ( 'basefile', 'item.md' );
 define ( 'maxattachments', 100 );
+define ( 'expire', 10 );
 
 \register_activation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_activate' );
 \add_action( 'wp_footer', '\WP_FLATEXPORTS\export' );
+\add_action ( 'init', '\WP_FLATEXPORTS\init' );
+
+/**
+ *
+ */
+function init () {
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_title', 10, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_excerpt', 20, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_content', 30, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_published', 40, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_urls', 50, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_author', 60, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_tags', 80, 2 );
+	add_filter ( 'wp_flatexport_post', '\WP_FLATEXPORTS\insert_location', 70, 2 );
+}
+
+function check_insert ( $post ) {
+	$post = fix_post( $post );
+
+	if ( false === $post )
+		return false;
+
+	$postdata = raw_post_data( $post );
+
+	if ( empty( $postdata ) )
+		return false;
+
+	return $postdata;
+
+}
+
+function insert_title ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	if ( ! isset( $postdata['title'] ) || empty( $postdata['title'] ) )
+		return $text;
+
+	$text .= "\n\n{$postdata['title']}\n";
+	$text .= str_repeat( "=", strlen( $postdata['title'] ) );
+
+	return $text;
+
+}
+
+function insert_excerpt ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	if ( ! isset( $postdata['excerpt'] ) || empty( $postdata['excerpt'] ) )
+		return $text;
+
+	$text .= "\n\n" . $postdata['excerpt'];
+
+	return $text;
+
+}
+
+function insert_content ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	$text .= "\n\n" . $postdata['content'];
+
+	return $text;
+
+}
+
+
+function insert_published ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	$text .= "\n\nPublished\n";
+	$text .= "---------\n";
+	$text .= "{$postdata['published']}\n\n";
+
+	if ( $postdata['published'] != $postdata['modified'] ) {
+		$text .= "Updated\n";
+		$text .= "-------\n";
+		$text .= "{$postdata['modified']}";
+	}
+
+	return $text;
+}
+
+function insert_urls ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	$text .= "\n\nURLs\n";
+	$text .= "----\n";
+	$text .= "- <" . join ( ">\n- <", $postdata['urls'] ) . ">";
+
+	return $text;
+}
+
+function insert_author ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	if ( ! isset( $postdata['author'] ) || empty( $postdata['author'] ) )
+		return $text;
+
+	$text .= "\n\nAuthor\n";
+	$text .= "------\n";
+	$text .= "{$postdata['author']}";
+
+	return $text;
+}
+
+function insert_tags ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	if ( empty( $postdata['tags'] ) )
+		return $text;
+
+	$tags = array();
+	foreach ( $postdata['tags'] as $k => $tag ) {
+		array_push( $tags, "#{$tag->name}" );
+	}
+	$tags = join (', ', $tags);
+	$text .= "\n\nTags\n";
+	$text .= "----\n";
+	// these are hashtags, so escape the first one to avoid converting it into
+	// a header
+	$text .= "\\" . $tags;
+
+	return $text;
+}
+
+function insert_location ( $text, $post ) {
+
+	$postdata = check_insert ( $post );
+	if ( false === $postdata )
+		return $text;
+
+	if ( ! isset( $postdata['geo'] ) || empty( $postdata['geo'] ) )
+		return $text;
+
+	$text .= "\n\nLocation\n";
+	$text .= "--------\n";
+	$text .= "{$postdata['geo']}";
+
+	return $text;
+}
 
 /**
  * activate hook
@@ -188,67 +349,13 @@ function plain_text_post ( $postid = false ) {
 	if ( false === $post )
 		return false;
 
-
-	$postdata = raw_post_data( $post );
-
-	if ( empty( $postdata ) )
-		return false;
-
 	$out = "";
 
-	if ( isset( $postdata['title'] ) && ! empty( $postdata['title'] ) ) {
-		$out .= "{$postdata['title']}\n";
-		// first level header
-		$out .= str_repeat( "=", strlen( $postdata['title'] ) ) . "\n\n";
-	}
-
-	if (isset($postdata['excerpt']) && !empty($postdata['excerpt']))
-		$out .= $postdata['excerpt'] . "\n\n";
-
-	$out .= $postdata['content'] . "\n\n";
-
-	$out .= "Published\n";
-	$out .= "---------\n";
-	$out .= "{$postdata['published']}\n\n";
-
-	if ( $postdata['published'] != $postdata['modified'] ) {
-		$out .= "Updated\n";
-		$out .= "-------\n";
-		$out .= "{$postdata['modified']}\n\n";
-	}
-
-	$out .= "URLs\n";
-	$out .= "----\n";
-	$out .= "- <" . join ( ">\n- <", $postdata['urls'] ) . ">\n\n";
-
-	if ( isset( $postdata['author'] ) && ! empty( $postdata['author'] ) ) {
-		$out .= "Author\n";
-		$out .= "------\n";
-		$out .= "{$postdata['author']}\n\n";
-	}
-
-	if ( isset( $postdata['geo'] ) && ! empty( $postdata['geo'] ) ) {
-		$out .= "Location\n";
-		$out .= "--------\n";
-		$out .= "{$postdata['geo']}\n\n";
-	}
-
-
-	if ( ! empty( $postdata['tags'] ) ) {
-		$tags = array();
-		foreach ( $postdata['tags'] as $k => $tag ) {
-			array_push( $tags, "#{$tag->name}" );
-		}
-		$tags = join (', ', $tags);
-		$out .= "Tags\n";
-		$out .= "----\n";
-		// these are hashtags, so escape the first one to avoid converting it into
-		// a header
-		$out .= "\\" . $tags;
-	}
-
-	return apply_filters ( 'wp_flatexport_post', $out, $post );
+	return trim ( apply_filters ( 'wp_flatexport_post', $out, $post ) );
 }
+
+
+
 
 /**
  *
@@ -396,6 +503,10 @@ function raw_post_data ( &$post = null ) {
 	if ($post === false)
 		return false;
 
+	if ( $cached = wp_cache_get ( $post->ID, __NAMESPACE__ . __FUNCTION__ ) )
+		return $cached;
+
+
 	$content = post_content ( $post );
 
 	// excerpt
@@ -472,6 +583,9 @@ function raw_post_data ( &$post = null ) {
 		'geo' => $geo,
 		//'reactions' => meta_reaction( $post ),
 	);
+
+
+	wp_cache_set ( $post->ID, $out, __NAMESPACE__ . __FUNCTION__, expire );
 
 	return $out;
 }

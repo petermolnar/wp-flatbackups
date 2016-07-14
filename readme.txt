@@ -1,9 +1,9 @@
 === wp-flatexport ===
 Contributors: cadeyrn
 Tags: plain text, export, backup
-Requires at least: 4.2
+Requires at least: 3.0
 Tested up to: 4.5.3
-Stable tag: 0.2
+Stable tag: 0.3
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -41,6 +41,11 @@ Version numbering logic:
 * every A. indicates BIG changes.
 * every .B version indicates new features.
 * every ..C indicates bugfixes for A.B version.
+
+= 0.3 =
+*2016-07-14*
+
+* switched to filter-based content inserting for the end output; this way it's possible to add, remove, reorder, and insert in between the predefined output parts
 
 = 0.2 =
 *2016-06-27*
