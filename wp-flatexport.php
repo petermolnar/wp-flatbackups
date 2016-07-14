@@ -28,7 +28,7 @@ Required minimum PHP version: 5.4
 
 namespace WP_FLATEXPORTS;
 
-define ( 'force', false );
+define ( 'force', true );
 define ( 'basedir', 'flat' );
 define ( 'basefile', 'item.md' );
 define ( 'maxattachments', 100 );
@@ -202,9 +202,6 @@ function plain_text_post ( $postid = false ) {
 		$out .= str_repeat( "=", strlen( $postdata['title'] ) ) . "\n\n";
 	}
 
-	//if ( !empty ( $postdata['reactions'] ) )
-		//$out .= $postdata['reactions'] . "\n\n";
-
 	if (isset($postdata['excerpt']) && !empty($postdata['excerpt']))
 		$out .= $postdata['excerpt'] . "\n\n";
 
@@ -247,10 +244,10 @@ function plain_text_post ( $postid = false ) {
 		$out .= "----\n";
 		// these are hashtags, so escape the first one to avoid converting it into
 		// a header
-		$out .= "\\" . $tags . "\n\n";
+		$out .= "\\" . $tags;
 	}
 
-	return $out;
+	return apply_filters ( 'wp_flatexport_post', $out, $post );
 }
 
 /**
