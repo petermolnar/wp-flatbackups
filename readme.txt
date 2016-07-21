@@ -3,19 +3,19 @@ Contributors: cadeyrn
 Tags: plain text, export, backup
 Requires at least: 3.0
 Tested up to: 4.5.3
-Stable tag: 0.3
+Stable tag: 0.4
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
-Auto-export all published content on visit to flat, folder + files based structure.
+Auto-export WordPress flat, structured, readable plain text.
 
 == Description ==
 
 *WARNING*
-This plugin is suited for my needs. Since my posts are already in Markdown, there is no HTML conversion present, but there are certain tricks done with the content.
+This plugin is suited for my needs.
+It only works well with Markdown content.
+There are certain tricks done with the content.
 Please be aware of this.
-
-The plugin action is hooked into wp_footer, therefore executed on actual site visit.
 
 Content will be exported to wp-content/flat/{post_slug}/ folder ( one folder per post), all attachments copied (or hardlinked, if possible with the filesystem; this is automatic ).
 
