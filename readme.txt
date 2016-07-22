@@ -3,7 +3,7 @@ Contributors: cadeyrn
 Tags: plain text, export, backup
 Requires at least: 3.0
 Tested up to: 4.5.3
-Stable tag: 0.4
+Stable tag: 0.5
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -41,6 +41,18 @@ Version numbering logic:
 * every A. indicates BIG changes.
 * every .B version indicates new features.
 * every ..C indicates bugfixes for A.B version.
+
+= 0.5 =
+*2016-07-22*
+
+* everything is through filters now
+* moar magic formatting:
+** stong/em moved to strict `**`/`_` from `__`/`*`
+** definition lists moved to strict `:    ` from lazy spaces
+* code is strictly less, than 80 char per line
+* comments format changed
+* using index.txt instead of item.md
+*
 
 = 0.3 =
 *2016-07-14*

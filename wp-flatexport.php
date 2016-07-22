@@ -3,7 +3,7 @@
 Plugin Name: WP Flat Export
 Plugin URI: https://github.com/petermolnar/wp-flatexport
 Description: auto-export WordPress flat, structured, readable plain text
-Version: 0.4
+Version: 0.5
 Author: Peter Molnar <hello@petermolnar.net>
 Author URI: http://petermolnar.net/
 License: GPLv3
@@ -30,6 +30,7 @@ namespace WP_FLATEXPORTS;
 define ( 'force', true );
 define ( 'basedir', 'flat' );
 define ( 'basefile', 'index.txt' );
+define ( 'pandocfile', 'content.asciidoc' );
 define ( 'maxattachments', 100 );
 define ( 'expire', 10 );
 define ( 'wrap', 80 );
@@ -71,9 +72,11 @@ function init () {
 			'post_content_clean_uploaddir',
 			'post_content_insert_featured',
 			'post_content_clear_imgids',
+			//'post_content_pandoc',
+			'post_content_fix_emstrong',
+			'post_content_fix_dl',
 			'post_content_url2footnote',
 			'post_content_headers',
-			//'post_content_wordwrap',
 			//'post_content_urls',
 		),
 		'wp_flatexport_comment' => array (
@@ -267,6 +270,10 @@ function insert_urls ( $text, $post ) {
 	// get rid of trailing slashes; it's either no trailing slash or slash on
 	// everything, which breaks .html-like real document path URLs
 	foreach ( $slugs as $k => $slug ) {
+		if ( ! strstr( $slug, 'http') ) {
+			unset ( $slugs[ $k ] );
+			continue;
+		}
 		$slugs[ $k ] = rtrim( $slug, '/' );
 	}
 
@@ -474,9 +481,20 @@ function post_content_resized2orig ( $content, $post ) {
 	$urlparts = parse_url( \site_url() );
 	$domain = $urlparts ['host'];
 	$wp_upload_dir = \wp_upload_dir();
-	$uploadurl = str_replace( '/', "\\/", trim( str_replace( \site_url(), '', $wp_upload_dir['url']), '/'));
+	$uploadurl = str_replace(
+		'/',
+		"\\/",
+		trim( str_replace(
+			\site_url(),
+			'',
+			$wp_upload_dir['url']
+		), '/')
+	);
 
-	$pregstr = "/((https?:\/\/". $domain .")?\/". $uploadurl ."\/.*\/[0-9]{4}\/[0-9]{2}\/)(.*)-([0-9]{1,4})×([0-9]{1,4})\.([a-zA-Z]{2,4})/";
+	$pregstr = "/((https?:\/\/". $domain .")?"
+	. "\/". $uploadurl
+	. "\/.*\/[0-9]{4}\/[0-9]{2}\/)(.*)-([0-9]{1,4})×([0-9]{1,4})"
+	. "\.([a-zA-Z]{2,4})/";
 
 	preg_match_all( $pregstr, $content, $resized_images );
 
@@ -491,7 +509,9 @@ function post_content_resized2orig ( $content, $post ) {
 		}
 	}
 
-	$pregstr = "/(https?:\/\/". $domain .")?\/". $uploadurl ."\/.*\/[0-9]{4}\/[0-9]{2}\/(.*?)\.([a-zA-Z]{2,4})/";
+	$pregstr = "/(https?:\/\/". $domain .")?"
+	. "\/".$uploadurl
+	."\/.*\/[0-9]{4}\/[0-9]{2}\/(.*?)\.([a-zA-Z]{2,4})/";
 
 	preg_match_all( $pregstr, $content, $images );
 	if ( !empty ( $images[0]  )) {
@@ -520,7 +540,11 @@ function post_content_clean_uploaddir ( $content, $post ) {
 	$urlparts = parse_url( \site_url() );
 	$domain = $urlparts ['host'];
 	$wp_upload_dir = \wp_upload_dir();
-	$uploadurl = str_replace( '/', "\\/", trim( str_replace( \site_url(), '', $wp_upload_dir['url']), '/'));
+	$uploadurl = str_replace(
+		'/',
+		"\\/",
+		trim( str_replace( \site_url(), '', $wp_upload_dir['url'] ), '/' )
+	);
 
 	$pattern = "/\({$wp_upload_dir['baseurl']}\/(.*?)\)/";
 	$search = str_replace( '/', '\/', $wp_upload_dir['baseurl'] );
@@ -548,7 +572,11 @@ function post_content_insert_featured ( $content, $post ) {
 				$title = $meta['image_meta']['title'];
 
 			$featured = "\n\n![{$title}]({$src[0]}){#img-{$thid}}";
-			$content .= apply_filters ( 'wp_flatexport_featured_image', $featured, $post );
+			$content .= apply_filters (
+				'wp_flatexport_featured_image',
+				$featured,
+				$post
+			);
 		}
 	}
 
@@ -573,29 +601,32 @@ function post_content_clear_imgids ( $content, $post ) {
 function post_content_url2footnote ( $content, $post ) {
 
 	//
-	$pattern = "/\s+(\[([^\s].*?)\]\((.*?)(\s?+[\\\"\'].*?[\\\"\'])?\))/";
-	$matches = array();
-	preg_match_all( $pattern, $content, $matches );
+	$pattern = "/[\s*_\/]+(\[([^\s].*?)\]\((.*?)(\s?+[\\\"\'].*?[\\\"\'])?\))/";
+	preg_match_all( $pattern, $content, $m );
 	// [1] -> array of []()
 	// [2] -> array of []
 	// [3] -> array of ()
 	// [4] -> (maybe) "" titles
-	if ( ! empty( $matches ) && isset( $matches[0] ) && ! empty( $matches[0] ) ) {
-		foreach ( $matches[1] as $cntr => $match ) {
-			$name = trim( $matches[2][$cntr] );
-			$url = trim( $matches[3][$cntr] );
+	if ( ! empty( $m ) && isset( $m[0] ) && ! empty( $m[0] ) ) {
+		foreach ( $m[1] as $cntr => $match ) {
+			$name = trim( $m[2][$cntr] );
+			$url = trim( $m[3][$cntr] );
 			if ( ! strstr( $url, 'http') )
 				$url = \site_url( $url );
 
 			$title = "";
 
-			if ( isset( $matches[4][$cntr] ) && !empty( $matches[4][$cntr] ) )
-				$title = " {$matches[4][$cntr]}";
+			if ( isset( $m[4][$cntr] ) && !empty( $m[4][$cntr] ) )
+				$title = " {$m[4][$cntr]}";
 
 			$refid = $cntr+1;
 
 			$footnotes[] = "[{$refid}]: {$url}{$title}";
-			$content = str_replace ( $match, "[" . trim( $matches[2][$cntr] ) . "][". $refid ."]" , $content );
+			$content = str_replace (
+				$match,
+				"[" . trim( $m[2][$cntr] ) . "][". $refid ."]" ,
+				$content
+			);
 		}
 
 		$content = $content . "\n\n" . join( "\n", $footnotes );
@@ -605,56 +636,116 @@ function post_content_url2footnote ( $content, $post ) {
 }
 
 /**
- * find all second level markdown headers and replace them with underlined version
+ * export with pandoc
+ *
+ */
+function post_content_pandoc ( $content, $post ) {
+	$flatroot = \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . basedir;
+	$flatdir = $flatroot . DIRECTORY_SEPARATOR . $post->post_name;
+	$pandoc = $flatdir . DIRECTORY_SEPARATOR . pandocfile;
+
+	$tmp = tempnam ( sys_get_temp_dir() , __NAMESPACE__ );
+	file_put_contents( $tmp, $post->post_content );
+
+	$cmd =
+		"/usr/bin/pandoc -p -f markdown_phpextra -t asciidoc -o {$pandoc} {$tmp}";
+	//exec( $cmd, $exif, $retval);
+	passthru ( $cmd );
+
+	unlink ( $tmp );
+
+	return $content;
+}
+
+/**
+ * find markdown links and replace them with footnote versions
+ *
+ */
+function post_content_fix_emstrong ( $content, $post ) {
+
+	// these regexes are borrowed from https://github.com/erusev/parsedown
+
+	$regexes = array (
+		'strong' => array(
+			'**' => '/[*]{2}((?:\\\\\*|[^*]|[*][^*]*[*])+?)[*]{2}(?![*])/s',
+			'__' => '/__((?:\\\\_|[^_]|_[^_]*_)+?)__(?!_)/us',
+		),
+		'em' => array (
+			'*' => '/[*]((?:\\\\\*|[^*]|[*][*][^*]+?[*][*])+?)[*](?![*])/s',
+			'_' => '/_((?:\\\\_|[^_]|__[^_]*__)+?)_(?!_)\b/us',
+		)
+	);
+
+	$replace_map = array (
+		'*' => '/',
+		'_' => '/',
+		'**' => '*',
+		'__' => '*',
+	);
+
+	foreach ( $regexes as $what => $subregexes ) {
+		$m = array();
+		foreach ( $subregexes as $key => $regex ) {
+			preg_match_all( $regex, $content, $m );
+			if ( empty( $m ) || ! isset( $m[0] ) || empty( $m[0] ) )
+				continue;
+
+			foreach ( array_keys ( $m[1] ) as $cntr ) {
+				$content = str_replace (
+					$m[0][$cntr],
+					$replace_map[ $key ] . $m[1][$cntr] . $replace_map[ $key ],
+					$content
+				);
+			}
+
+		}
+	}
+
+	return $content;
+}
+
+/**
+ *
+ *
+ */
+function post_content_fix_dl ( $content, $post ) {
+	preg_match_all( '/^.*\n(:\s+).*$/mi', $content, $m );
+
+	if ( empty( $m ) || ! isset( $m[0] ) || empty( $m[0] ) )
+		return $content;
+
+	foreach ( $m[0] as $i => $match ) {
+		$match = str_replace( $m[1][$i], ':    ', $match );
+		$content = str_replace( $m[0][$i], $match, $content );
+	}
+
+	return $content;
+}
+
+
+
+
+/**
+ * find all second level markdown headers and replace them with
+ * underlined version
  *
  */
 function post_content_headers ( $content, $post ) {
 
 	$map = depthmap();
-	preg_match_all( "/^([#]+)\s?+(.*)$/m", $content, $matches );
+	preg_match_all( "/^([#]+)\s?+(.*)$/m", $content, $m );
 
-	if ( ! empty( $matches ) && isset( $matches[0] ) && ! empty( $matches[0] ) ) {
-		foreach ( $matches[0] as $cntr => $match ) {
-			$depth = strlen( trim( $matches[1][$cntr] ) );
-			$title = trim( $matches[2][$cntr] );
-			$content = str_replace ( $match, $title ."\n" . str_repeat( $map[ $depth ], mb_strlen( $title, 'UTF-8' ) ), $content );
+	if ( ! empty( $m ) && isset( $m[0] ) && ! empty( $m[0] ) ) {
+		foreach ( $m[0] as $cntr => $match ) {
+			$depth = strlen( trim( $m[1][$cntr] ) );
+			$title = trim( $m[2][$cntr] );
+			$u = str_repeat( $map[ $depth ], mb_strlen( $title ) );
+			$content = str_replace ( $match, "{$title}\n{$u}", $content );
 		}
 	}
 
 	return $content;
 }
-
-/**
- * word-wrap magic
- *
- *
-function post_content_wordwrap ( $content, $post ) {
-
-	$fenced_o = array();
-	preg_match_all( "/^```(.*?)[\n\r](.*?)```/mis", $content, $fenced_o );
-
-	$content = wordwrap( $content, 72 );
-
-	$fenced_n = array();
-	preg_match_all( "/^```(.*?)[\n\r](.*?)```/mis", $content, $fenced_n );
-
-	foreach ( array_keys( $fenced_o[0] ) as $k ) {
-		if ( $fenced_o[0][$k] != $fenced_n[0][$k] ) {
-			$content = str_replace ( $fenced_n[0][$k], $fenced_o[0][$k], $content );
-		}
-	}
-
-	return $content;
-}
-*/
-
-/**
- * convert standalone urls to <url>
- *
-function post_content_urls ( $content, $post ) {
-	return $content = preg_replace("/\b((?:http|https)\:\/\/?[a-zA-Z0-9\.\/\?\:@\-_=#]+\.[a-zA-Z0-9\.\/\?\:@\-_=#&,\+%]*)(?:\s|\n|\r|$)/i", '<${1}>' . "\n", $content);
-}
-*/
 
 /**
  *
@@ -735,12 +826,14 @@ function export () {
 			if ( link( $attachment_path, $target_file ) )
 				continue;
 			else
-				debug( "could not hardlink '{$attachment_path}' to '{$target_file}'; trying to copy", 5);
+				debug( "could not hardlink '{$attachment_path}'"
+					. " to '{$target_file}'; trying to copy", 5);
 
 			if ( copy( $attachment_path, $target_file ) )
 				continue;
 			else
-				debug("could not copy '{$attachment_path}' to '{$target_file}'; saving attachment failed!", 4);
+				debug( "could not copy '{$attachment_path}'"
+					. " to '{$target_file}'; saving attachment failed!", 4);
 
 		}
 	}
@@ -857,7 +950,10 @@ function fix_post ( &$post = null ) {
  * test if an object is actually a post
  */
 function is_post ( &$post ) {
-	if ( !empty($post) && is_object($post) && isset($post->ID) && !empty($post->ID) )
+	if ( ! empty( $post ) &&
+			 is_object( $post ) &&
+			 isset( $post->ID ) &&
+			 ! empty( $post->ID ) )
 		return true;
 
 	return false;
@@ -916,6 +1012,9 @@ function debug( $message, $level = LOG_NOTICE ) {
 
 	if (isset($caller['class']))
 		$parent = $caller['class'] . '::' . $parent;
+
+	if (isset($caller['namespace']))
+		$parent = $caller['namespace'] . '::' . $parent;
 
 	return error_log( "{$parent}: {$message}" );
 }
