@@ -27,13 +27,13 @@ License: GPLv3
 
 namespace WP_FLATEXPORTS;
 
-define ( 'force', true );
-define ( 'basedir', 'flat' );
-define ( 'basefile', 'index.txt' );
-define ( 'pandocfile', 'content.asciidoc' );
-define ( 'maxattachments', 100 );
-define ( 'expire', 10 );
-define ( 'wrap', 80 );
+define ( 'WP_FLATEXPORTS\force', true );
+define ( 'WP_FLATEXPORTS\basedir', 'flat' );
+define ( 'WP_FLATEXPORTS\basefile', 'index.txt' );
+define ( 'WP_FLATEXPORTS\pandocfile', 'content.asciidoc' );
+define ( 'WP_FLATEXPORTS\maxattachments', 100 );
+define ( 'WP_FLATEXPORTS\expire', 10 );
+define ( 'WP_FLATEXPORTS\wrap', 80 );
 
 \register_activation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_activate' );
 \add_action( 'wp', '\WP_FLATEXPORTS\export' );
