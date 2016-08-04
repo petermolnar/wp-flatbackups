@@ -29,16 +29,86 @@ namespace WP_FLATEXPORTS;
 
 define ( 'WP_FLATEXPORTS\force', true );
 define ( 'WP_FLATEXPORTS\basedir', 'flat' );
-define ( 'WP_FLATEXPORTS\basefile', 'index.txt' );
-define ( 'WP_FLATEXPORTS\pandocfile', 'content.asciidoc' );
+define ( 'flatroot', \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . 'flat' );
+define ( 'WP_FLATEXPORTS\txtfile', 'index.txt' );
+define ( 'WP_FLATEXPORTS\mdfile', 'item.md' );
+define ( 'WP_FLATEXPORTS\htmlfile', 'index.html' );
+//define ( 'WP_FLATEXPORTS\pandocfile', 'content.asciidoc' );
 define ( 'WP_FLATEXPORTS\maxattachments', 100 );
 define ( 'WP_FLATEXPORTS\expire', 10 );
 define ( 'WP_FLATEXPORTS\wrap', 80 );
 
 \register_activation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_activate' );
-\add_action( 'wp', '\WP_FLATEXPORTS\export' );
-\add_action ( 'init', '\WP_FLATEXPORTS\init' );
 
+// init all the things
+\add_action( 'init', '\WP_FLATEXPORTS\init' );
+
+// export on any change made to a post
+\add_action( 'transition_post_status', '\WP_FLATEXPORTS\export_auto' );
+
+// cron based export for all posts
+\add_action( 'wp_flatexport', '\WP_FLATEXPORTS\export_all' );
+
+// display plain text with https://site.com/path/to/post/text
+\add_action( 'template_redirect', '\WP_FLATEXPORTS\display' );
+
+//
+\add_action( 'wp', '\WP_FLATEXPORTS\export' );
+
+
+// this is to capture the complete, rendered HTML
+// fired on post visit, sadly; for WordPress, there seems to be no other way
+// to properly trigger this
+export_html_init();
+
+/**
+ *
+ */
+function export_html_init( ) {
+	ob_start( '\WP_FLATEXPORTS\export_html' );
+}
+
+
+/**
+ *
+ */
+function export_html( $buffer ) {
+	$buffer = trim($buffer);
+
+	if ( ! is_singular() || is_user_logged_in() )
+		return $buffer;
+
+	$post = fix_post();
+
+	if ( $post === false )
+		return $buffer;
+
+	// create directory structure
+	$filename = $post->post_name;
+
+	$flatdir = flatroot . DIRECTORY_SEPARATOR . $filename;
+	$flatfile = $flatdir . DIRECTORY_SEPARATOR . htmlfile;
+
+	if ( ! is_dir( $flatdir ) )
+		return $buffer;
+
+	$post_timestamp = \get_the_modified_time( 'U', $post->ID );
+	$file_timestamp = 0;
+
+	if ( @file_exists($flatfile) ) {
+		$file_timestamp = @filemtime ( $flatfile );
+		if ( $file_timestamp == $post_timestamp && force == false ) {
+			return $buffer;
+		}
+	}
+
+	//$buffer = post_content_clean_uploaddir( $buffer, $post );
+
+	file_put_contents( $flatfile, $buffer );
+	touch ( $flatfile, $post_timestamp );
+
+	return trim($buffer);
+}
 
 /**
  * activate hook
@@ -56,16 +126,21 @@ function plugin_activate() {
 function init () {
 
 	$filters = array (
-		'wp_flatexport_post' => array (
-			'insert_title',
-			'insert_excerpt',
-			'insert_content',
-			'insert_published',
-			'insert_urls',
-			'insert_author',
-			'insert_tags',
-			'insert_location',
-			'insert_uuid',
+		'wp_flatexport_md' => array (
+			'md_insert_meta',
+			'txt_insert_excerpt',
+			'txt_insert_content',
+		),
+		'wp_flatexport_txt' => array (
+			'txt_insert_title',
+			'txt_insert_excerpt',
+			'txt_insert_content',
+			'txt_insert_published',
+			'txt_insert_urls',
+			'txt_insert_author',
+			'txt_insert_tags',
+			'txt_insert_location',
+			'txt_insert_uuid',
 		),
 		'wp_flatexport_content' => array (
 			'post_content_resized2orig',
@@ -75,9 +150,13 @@ function init () {
 			//'post_content_pandoc',
 			'post_content_fix_emstrong',
 			'post_content_fix_dl',
+			'post_content_fix_surprises',
 			'post_content_url2footnote',
-			'post_content_headers',
+			'post_content_setext_headers',
 			//'post_content_urls',
+		),
+		'wp_flatexport_meta' => array (
+			'meta_add_location',
 		),
 		'wp_flatexport_comment' => array (
 			'comment_insert_type',
@@ -98,9 +177,30 @@ function init () {
 		}
 	}
 
+	\add_rewrite_endpoint( 'text', EP_PERMALINK );
+
+	if (!wp_get_schedule( 'wp_flatexport' ))
+		wp_schedule_event ( time(), 'daily', 'wp_flatexport' );
 }
 
+/**
+ *
+ */
+function display () {
+	global $wp_query;
+	// if this is not a request for json or a singular object then bail
+	if ( ! isset( $wp_query->query_vars['text'] ) || ! is_singular() )
+		return;
 
+	// include custom template
+	header("Content-Type: text/plain");
+	print export();
+	exit;
+}
+
+/**
+ *
+ */
 function depthmap () {
 
 	return array (
@@ -116,9 +216,18 @@ function depthmap () {
  *
  */
 function _insert_head ( $title, $depth = 2 ) {
-	$map = depthmap();
-	$underline =  str_repeat( $map[ $depth ], mb_strlen( $title) );
-	return "\n\n{$title}\n${underline}\n";
+	if ( $depth > 2 ) {
+		$prefix =  str_repeat( "#", $depth );
+		$r = "\n\n{$prefix} {$title}\n";
+	}
+	else {
+		$map = depthmap();
+		$underline =  str_repeat( $map[ $depth ], mb_strlen( $title) );
+		$r = "\n\n{$title}\n${underline}\n";
+	}
+
+	return $r;
+
 }
 
 /**
@@ -128,7 +237,7 @@ function _insert_head ( $title, $depth = 2 ) {
  * ============
  *
  */
-function insert_title ( $text, $post ) {
+function txt_insert_title ( $text, $post ) {
 
 	$title = trim( \get_the_title( $post->ID ) );
 
@@ -155,7 +264,7 @@ function insert_title ( $text, $post ) {
  * this should not ever change!
  *
  */
-function insert_uuid ( $text, $post ) {
+function txt_insert_uuid ( $text, $post ) {
 
 	$uuid = hash (
 		'md5',
@@ -174,12 +283,12 @@ function insert_uuid ( $text, $post ) {
  *
  * \n\n (post excerpt)
  */
-function insert_excerpt ( $text, $post ) {
+function txt_insert_excerpt ( $text, $post ) {
 
 	$excerpt = trim( $post->post_excerpt );
 
 	if( ! empty( $excerpt  ) )
-		$text .= "\n\n" . $excerpt;
+		$text .= "\n" . $excerpt;
 
 	return $text;
 
@@ -191,7 +300,7 @@ function insert_excerpt ( $text, $post ) {
  *
  * \n\n (post content)
  */
-function insert_content ( $text, $post ) {
+function txt_insert_content ( $text, $post ) {
 	$content = apply_filters(
 		'wp_flatexport_content',
 		trim( $post->post_content ),
@@ -199,7 +308,7 @@ function insert_content ( $text, $post ) {
 	);
 
 	if ( ! empty( $content ) )
-		$text .= "\n\n" . $content;
+		$text .= "\n" . $content;
 
 	return $text;
 }
@@ -213,16 +322,22 @@ function insert_content ( $text, $post ) {
  * initial - (post publish date in Y-m-d H:i:s P format)
  * [current - (post last update date in Y-m-d H:i:s P format)]
  */
-function insert_published ( $text, $post ) {
+function txt_insert_published ( $text, $post ) {
 
 	$published = \get_the_time( 'Y-m-d H:i:s P', $post->ID );
 	$modified = \get_the_modified_time( 'Y-m-d H:i:s P', $post->ID );
 
-	$text .= _insert_head ( "Published" );
-	$text .= "initial - {$published}";
+	$published = \get_the_time( 'U', $post->ID );
+	$modified = \get_the_modified_time( 'U', $post->ID );
 
-	if ( $published != $modified )
-		$text .= "\ncurrent - {$modified}";
+
+	$text .= _insert_head ( "Published" );
+	//$text .= "initial - {$published}";
+	$text .= "- " . date( 'Y-m-d H:i:s P', $published );
+
+	if ( $published != $modified && $modified > $published )
+		$text .= "\n- " . date( 'Y-m-d H:i:s P', $modified );
+		//$text .= "\ncurrent - {$modified}";
 
 	return $text;
 }
@@ -238,7 +353,18 @@ function insert_published ( $text, $post ) {
  * - (post permalink)
  * [- additional urls, one per line]
  */
-function insert_urls ( $text, $post ) {
+function txt_insert_urls ( $text, $post ) {
+
+	// basic ones
+	$slugs = list_urls( $post );
+	$text .= _insert_head ( "URLs" );
+	$text .= "- " . join ( "\n- ", $slugs );
+
+	return $text;
+}
+
+
+function list_urls ( $post ) {
 
 	// basic ones
 	$slugs = \get_post_meta ( $post->ID, '_wp_old_slug' );
@@ -287,12 +413,9 @@ function insert_urls ( $text, $post ) {
 			return strlen( $a ) - strlen( $b );
 		}
 	);
-
-	$text .= _insert_head ( "URLs" );
-	$text .= "- " . join ( "\n- ", $slugs );
-
-	return $text;
+	return $slugs;
 }
+
 
 /**
  *
@@ -304,7 +427,7 @@ function insert_urls ( $text, $post ) {
  * avatar URL
  * [ author URL ]
  */
-function insert_author ( $text, $post ) {
+function txt_insert_author ( $text, $post ) {
 
 	$author_id = $post->post_author;
 	$author = \get_the_author_meta ( 'display_name' , $author_id );
@@ -326,7 +449,20 @@ function insert_author ( $text, $post ) {
 	$author .= "\n${avatar}";
 
 	if ( $author_url = \get_the_author_meta ( 'url' , $author_id ) )
-		$author .= " \n{$author_url}";
+		$author .= " \n- {$author_url}";
+
+	$socials = array (
+		'github'   => 'https://github.com/%s',
+		'flickr'   => 'https://www.flickr.com/people/%s',
+		'key' => '%s',
+	);
+
+	foreach ( $socials as $silo => $pattern ) {
+		$socialmeta = get_the_author_meta ( $silo , $author_id );
+
+		if ( !empty($socialmeta) )
+			$author .= "\n- " . sprintf ( $pattern, $socialmeta );
+	}
 
 
 	$text .= _insert_head ( "Author" );
@@ -343,7 +479,7 @@ function insert_author ( $text, $post ) {
  * ----
  * \#(comma separated list of # tags)
  */
-function insert_tags ( $text, $post ) {
+function txt_insert_tags ( $text, $post ) {
 
 	$raw_tags = \wp_get_post_terms( $post->ID, 'post_tag' );
 
@@ -374,7 +510,7 @@ function insert_tags ( $text, $post ) {
  * --------
  * latitude,longitude[@altitude]
  */
-function insert_location ( $text, $post ) {
+function txt_insert_location ( $text, $post ) {
 
 	// geo
 	$lat = \get_post_meta ( $post->ID, 'geo_latitude' , true );
@@ -638,7 +774,7 @@ function post_content_url2footnote ( $content, $post ) {
 /**
  * export with pandoc
  *
- */
+ *
 function post_content_pandoc ( $content, $post ) {
 	$flatroot = \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . basedir;
 	$flatdir = $flatroot . DIRECTORY_SEPARATOR . $post->post_name;
@@ -656,6 +792,7 @@ function post_content_pandoc ( $content, $post ) {
 
 	return $content;
 }
+*/
 
 /**
  * find markdown links and replace them with footnote versions
@@ -665,27 +802,29 @@ function post_content_fix_emstrong ( $content, $post ) {
 
 	// these regexes are borrowed from https://github.com/erusev/parsedown
 
-	$regexes = array (
+
+	$invalid = array (
 		'strong' => array(
-			'**' => '/[*]{2}((?:\\\\\*|[^*]|[*][^*]*[*])+?)[*]{2}(?![*])/s',
+			//'**' => '/[*]{2}((?:\\\\\*|[^*]|[*][^*]*[*])+?)[*]{2}(?![*])/s',
 			'__' => '/__((?:\\\\_|[^_]|_[^_]*_)+?)__(?!_)/us',
 		),
 		'em' => array (
 			'*' => '/[*]((?:\\\\\*|[^*]|[*][*][^*]+?[*][*])+?)[*](?![*])/s',
-			'_' => '/_((?:\\\\_|[^_]|__[^_]*__)+?)_(?!_)\b/us',
+			//'_' => '/_((?:\\\\_|[^_]|__[^_]*__)+?)_(?!_)\b/us',
 		)
 	);
 
 	$replace_map = array (
-		'*' => '/',
-		'_' => '/',
-		'**' => '*',
-		'__' => '*',
+		'*' => '_',
+		//'_' => '/',
+		//'**' => '*',
+		'__' => '**',
 	);
 
-	foreach ( $regexes as $what => $subregexes ) {
+
+	foreach ( $invalid as $what => $regexes ) {
 		$m = array();
-		foreach ( $subregexes as $key => $regex ) {
+		foreach ( $regexes as $key => $regex ) {
 			preg_match_all( $regex, $content, $m );
 			if ( empty( $m ) || ! isset( $m[0] ) || empty( $m[0] ) )
 				continue;
@@ -722,6 +861,16 @@ function post_content_fix_dl ( $content, $post ) {
 	return $content;
 }
 
+/**
+ *
+ *
+ */
+function post_content_fix_surprises  ( $content, $post ) {
+	$content = str_replace ( '&#039;', "'", $content );
+
+	return $content;
+}
+
 
 
 
@@ -730,7 +879,7 @@ function post_content_fix_dl ( $content, $post ) {
  * underlined version
  *
  */
-function post_content_headers ( $content, $post ) {
+function post_content_setext_headers ( $content, $post ) {
 
 	$map = depthmap();
 	preg_match_all( "/^([#]+)\s?+(.*)$/m", $content, $m );
@@ -738,6 +887,10 @@ function post_content_headers ( $content, $post ) {
 	if ( ! empty( $m ) && isset( $m[0] ) && ! empty( $m[0] ) ) {
 		foreach ( $m[0] as $cntr => $match ) {
 			$depth = strlen( trim( $m[1][$cntr] ) );
+
+			if ( $depth > 2 )
+				continue;
+
 			$title = trim( $m[2][$cntr] );
 			$u = str_repeat( $map[ $depth ], mb_strlen( $title ) );
 			$content = str_replace ( $match, "{$title}\n{$u}", $content );
@@ -761,26 +914,58 @@ function post_content ( &$post ) {
 	);
 }
 
+/**
+ *
+ */
+function export_all () {
+
+	$types = get_post_types();
+	$exclude = [ 'attachment', 'revision', 'nav_menu_item' ];
+	foreach ( $exclude as $ex )
+		unset ( $types[ $ex ] );
+
+	$args = [
+		'posts_per_page' => -1,
+		'post_types' => array_keys( $types ),
+	];
+
+	$posts = get_posts( $args );
+	foreach ( $posts as $post ) {
+		export ( $post );
+	}
+
+}
 
 /**
  *
  */
-function export () {
+function export_auto ( $new_status = null , $old_status = null, $post = null ) {
+	if (  null === $new_status || null === $old_status || null === $post )
+		return;
 
-	if ( ! \is_singular() )
-		return false;
+	export ( $post );
+}
 
-	$post = fix_post();
+/**
+ *
+ */
+function export ( $post = null ) {
 
+	if ( null === $post ) {
+		 if ( ! \is_singular() )
+			return false;
+	}
+
+	$post = fix_post( $post );
 	if ( $post === false )
 		return false;
 
 	// create directory structure
 	$filename = $post->post_name;
 
-	$flatroot = \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . basedir;
-	$flatdir = $flatroot . DIRECTORY_SEPARATOR . $filename;
-	$flatfile = $flatdir . DIRECTORY_SEPARATOR . basefile;
+	$flatdir = \flatroot . DIRECTORY_SEPARATOR . $filename;
+	$flatfile = $flatdir . DIRECTORY_SEPARATOR . txtfile;
+	$mdfile = $flatdir . DIRECTORY_SEPARATOR . mdfile;
 
 	$post_timestamp = \get_the_modified_time( 'U', $post->ID );
 	$file_timestamp = 0;
@@ -789,11 +974,11 @@ function export () {
 		$file_timestamp = @filemtime ( $flatfile );
 	}
 
-	$mkdir = array ( $flatroot, $flatdir );
+	$mkdir = array ( \flatroot, $flatdir );
 	foreach ( $mkdir as $dir ) {
 		if ( !is_dir($dir)) {
 			if (!mkdir( $dir )) {
-				debug_log('Failed to create ' . $dir . ', exiting export', 4);
+				debug ('Failed to create ' . $dir . ', exiting export', 4);
 				return false;
 			}
 		}
@@ -852,13 +1037,21 @@ function export () {
 		return true;
 	}
 
-	$out = trim ( apply_filters ( 'wp_flatexport_post', "", $post ) );
+	$txt = trim ( apply_filters ( 'wp_flatexport_txt', "", $post ) ) . "\n\n";
 
 	// write log
 	debug ( "Exporting #{$post->ID}, {$post->post_name} to {$flatfile}", 6 );
-	file_put_contents ($flatfile, $out);
+	file_put_contents ($flatfile, $txt);
 	touch ( $flatfile, $post_timestamp );
-	return true;
+
+	//$md = trim ( apply_filters ( 'wp_flatexport_md', "", $post ) );
+
+	// write log
+	//debug ( "Exporting #{$post->ID}, {$post->post_name} to {$mdfile}", 6 );
+	//file_put_contents ($mdfile, $md);
+	//touch ( $mdfile, $post_timestamp );
+
+	return $txt;
 }
 
 /**
@@ -866,8 +1059,7 @@ function export () {
  */
 function export_comment ( $post, $comment ) {
 	$filename = $post->post_name;
-	$flatroot = \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . basedir;
-	$flatdir = $flatroot . DIRECTORY_SEPARATOR . $filename;
+	$flatdir = flatroot . DIRECTORY_SEPARATOR . $filename;
 
 	$cfile = "comment_{$comment->comment_ID}.txt";
 	$cfile = $flatdir . DIRECTORY_SEPARATOR . $cfile;
@@ -891,20 +1083,25 @@ function export_comment ( $post, $comment ) {
 	touch ( $cfile, $c_timestamp );
 }
 
+function meta_add_location ( $meta, $post ) {
+	return $meta;
+}
 
 /**
  *
- *
-function yaml_header ( &$post ) {
+ */
+function md_insert_meta ( $md, $post ) {
 	if ( ! extension_loaded( 'yaml') || ! function_exists( 'yaml_emit') )
-		return false;
+		return $md;
+
+	$meta = [];
 
 	$tags = \wp_get_post_terms( $post->ID, 'post_tag' );
 	foreach ( $tags as $k => $tag ) {
 		$tags[ $k ] = "{$tag->name}";
 	}
 
-	$urls = get_insert_urls ( $post );
+	$urls = list_urls( $post );
 	$permalink = \get_permalink( $post );
 	foreach ( $urls as $k => $url ) {
 
@@ -917,19 +1114,67 @@ function yaml_header ( &$post ) {
 		$urls[ $k ] = str_replace ( rtrim( site_url() . '/' ), '/', $url );
 	}
 
-	$yaml = array (
+	$meta = [
 		'title' => $post->post_title,
-		'description' => $post->post_excerpt,
-		'date' => \get_the_time( 'Y-m-d H:i:s P', $post->ID );
+		'description' => strip_tags($post->post_excerpt),
+		'publish_date' => \get_the_time( 'Y-m-d H:i:s P', $post->ID ),
 		'tags' => $tags,
-		'aliases' => $urls,
 		'slug' => $post->post_name,
 		'url' => $permalink,
+		'published' => 'true',
+		'routes' => [
+			'canonical' => str_replace ( rtrim( site_url() . '/' ), '/', $permalink ),
+			'aliases' => $urls
+		]
+	];
 
-	//$modified = \get_the_modified_time( 'Y-m-d H:i:s P', $post->ID );
+	$meta = apply_filters( 'wp_flatexport_meta', $meta, $post );
+	$meta = yaml_emit( $meta );
+
+	return "{$meta}{$md}";
+}
+
+
+/**
+ * generate gravatar img link
+ */
+function gravatar ( $email ) {
+	return sprintf(
+		'https://s.gravatar.com/avatar/%s?=64',
+		md5( strtolower( trim( $email ) ) )
 	);
+}
 
+/**
+ *
+ *
+function on_publish( $new_status, $old_status, $post ) {
+	$post = fix_post ( $post );
 
+	if ( false === $post )
+		return false;
+
+	$content = export( $post );
+
+	if ( $post->post_content_filtered == $export )
+		return true;
+
+	global $wpdb;
+	$dbname = "{$wpdb->prefix}posts";
+	$req = false;
+
+	debug("Updating post content for #{$post->ID}", 5);
+
+	$q = $wpdb->prepare( "UPDATE `{$dbname}` SET `post_content_filtered`='%s' WHERE `ID`='{$post->ID}'", $content );
+
+	try {
+		$req = $wpdb->query( $q );
+	}
+	catch (Exception $e) {
+		debug('Something went wrong: ' . $e->getMessage(), 4);
+	}
+
+	return true;
 }
 */
 
@@ -1017,14 +1262,4 @@ function debug( $message, $level = LOG_NOTICE ) {
 		$parent = $caller['namespace'] . '::' . $parent;
 
 	return error_log( "{$parent}: {$message}" );
-}
-
-/**
- * generate gravatar img link
- */
-function gravatar ( $email ) {
-	return sprintf(
-		'https://s.gravatar.com/avatar/%s?=64',
-		md5( strtolower( trim( $email ) ) )
-	);
 }
