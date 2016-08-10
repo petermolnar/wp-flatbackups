@@ -2,7 +2,7 @@
     "name": "petermolnar/wp-flatexport",
     "description": "auto-export WordPress contents to folders and plain text + markdown files for longetivity and portability",
     "require": {
-        "php": ">=5.4.0",
+        "php": ">=5.4.0"
     },
     "license": "GPLv3",
     "authors": [

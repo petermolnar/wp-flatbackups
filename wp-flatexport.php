@@ -27,18 +27,24 @@ License: GPLv3
 
 namespace WP_FLATEXPORTS;
 
-define ( 'WP_FLATEXPORTS\force', true );
-define ( 'WP_FLATEXPORTS\basedir', 'flat' );
-define ( 'flatroot', \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . 'flat' );
-define ( 'WP_FLATEXPORTS\txtfile', 'index.txt' );
-define ( 'WP_FLATEXPORTS\mdfile', 'item.md' );
-define ( 'WP_FLATEXPORTS\htmlfile', 'index.html' );
-//define ( 'WP_FLATEXPORTS\pandocfile', 'content.asciidoc' );
-define ( 'WP_FLATEXPORTS\maxattachments', 100 );
-define ( 'WP_FLATEXPORTS\expire', 10 );
-define ( 'WP_FLATEXPORTS\wrap', 80 );
+require (__DIR__ . '/vendor/autoload.php');
+use KzykHys\FrontMatter\FrontMatter;
+
+define ( 'WP_FLATEXPORTS\FORCE', false );
+define ( 'WP_FLATEXPORTS\ROOT', \WP_CONTENT_DIR . DIRECTORY_SEPARATOR
+	. 'flat' . DIRECTORY_SEPARATOR );
+define ( 'WP_FLATEXPORTS\FLATROOT', ROOT . 'posts'
+	. DIRECTORY_SEPARATOR );
+define ( 'WP_FLATEXPORTS\FILESROOT', ROOT . 'files'
+	. DIRECTORY_SEPARATOR );
+define ( 'WP_FLATEXPORTS\COMMENTROOT', ROOT . 'comments'
+	. DIRECTORY_SEPARATOR );
+define ( 'WP_FLATEXPORTS\TXTFILE', 'index.txt' );
+define ( 'WP_FLATEXPORTS\MDFILE', 'index.md' );
+//define ( 'WP_FLATEXPORTS\HTMLFILE', 'index.html' );
 
 \register_activation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_activate' );
+\register_deactivation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_deactivate' );
 
 // init all the things
 \add_action( 'init', '\WP_FLATEXPORTS\init' );
@@ -53,28 +59,49 @@ define ( 'WP_FLATEXPORTS\wrap', 80 );
 \add_action( 'template_redirect', '\WP_FLATEXPORTS\display' );
 
 //
-\add_action( 'wp', '\WP_FLATEXPORTS\export' );
-
+//\add_action( 'wp', '\WP_FLATEXPORTS\export' );
 
 // this is to capture the complete, rendered HTML
 // fired on post visit, sadly; for WordPress, there seems to be no other way
 // to properly trigger this
-export_html_init();
+//export_html_init();
+
+function post_filename ( &$post, $ext = TXTFILE ) {
+	$timestamp = \get_the_time( 'U', $post->ID );
+	$date = date( 'Y-m-d', $timestamp );
+	if ( empty( $date ) )
+		die ( json_encode( $post ) );
+
+	//$dir = FLATROOT . $date . '-' . $post->post_name;
+	////$dir = FLATROOT . $post->post_name;
+
+	//if ( ! is_dir( $dir ) )
+		//if ( ! mkdir( $dir ) )
+			//die ( "could not create {$dir} - that is bad, so we die now." );
+
+	//touch ( $dir, $timestamp );
+
+	//return $dir . DIRECTORY_SEPARATOR . $ext;
+	return FLATROOT . $date . '-' . $post->post_name . '.md';
+}
 
 /**
  *
- */
+ *
 function export_html_init( ) {
 	ob_start( '\WP_FLATEXPORTS\export_html' );
 }
+*/
 
 
 /**
  *
- */
+ *
 function export_html( $buffer ) {
 	$buffer = trim($buffer);
 
+	// skipping all collector pages and avoid rendering wp-admin-bar by skipping
+	// logged in users
 	if ( ! is_singular() || is_user_logged_in() )
 		return $buffer;
 
@@ -83,32 +110,25 @@ function export_html( $buffer ) {
 	if ( $post === false )
 		return $buffer;
 
-	// create directory structure
-	$filename = $post->post_name;
-
-	$flatdir = flatroot . DIRECTORY_SEPARATOR . $filename;
-	$flatfile = $flatdir . DIRECTORY_SEPARATOR . htmlfile;
-
-	if ( ! is_dir( $flatdir ) )
-		return $buffer;
-
+	$f = post_filename( $post, HTMLFILE );
 	$post_timestamp = \get_the_modified_time( 'U', $post->ID );
 	$file_timestamp = 0;
 
-	if ( @file_exists($flatfile) ) {
-		$file_timestamp = @filemtime ( $flatfile );
-		if ( $file_timestamp == $post_timestamp && force == false ) {
+	if ( @file_exists( $f ) ) {
+		$file_timestamp = @filemtime ( $f );
+		if ( $file_timestamp == $post_timestamp && FORCE == false ) {
 			return $buffer;
 		}
 	}
 
 	//$buffer = post_content_clean_uploaddir( $buffer, $post );
 
-	file_put_contents( $flatfile, $buffer );
-	touch ( $flatfile, $post_timestamp );
+	file_put_contents( $f, $buffer );
+	touch ( $f, $post_timestamp );
 
 	return trim($buffer);
 }
+*/
 
 /**
  * activate hook
@@ -118,6 +138,23 @@ function plugin_activate() {
 		die( 'The minimum PHP version required for this plugin is 5.3' );
 	}
 
+	$dirs = [ FLATROOT, FILESROOT ];
+	foreach ( $dirs as $dir ) {
+		$dir = rtrim( $dir, '/' );
+		if ( ! is_dir( $dir  ) ) {
+			if ( ! mkdir( $dir ) ) {
+				die ( "Could not create " . $dir . "directory" );
+			}
+		}
+	}
+}
+
+/**
+ *
+ */
+function plugin_deactivate() {
+		wp_unschedule_event( time(), 'wp_flatexport' );
+		wp_clear_scheduled_hook( 'wp_flatexport' );
 }
 
 /**
@@ -128,7 +165,7 @@ function init () {
 	$filters = array (
 		'wp_flatexport_md' => array (
 			'md_insert_meta',
-			'txt_insert_excerpt',
+			//'txt_insert_excerpt',
 			'txt_insert_content',
 		),
 		'wp_flatexport_txt' => array (
@@ -140,6 +177,7 @@ function init () {
 			'txt_insert_author',
 			'txt_insert_tags',
 			'txt_insert_location',
+			'txt_insert_attachments',
 			'txt_insert_uuid',
 		),
 		'wp_flatexport_content' => array (
@@ -155,14 +193,15 @@ function init () {
 			'post_content_setext_headers',
 			//'post_content_urls',
 		),
-		'wp_flatexport_meta' => array (
-			'meta_add_location',
-		),
+		//'wp_flatexport_meta' => array (
+			//'meta_add_location',
+		//),
 		'wp_flatexport_comment' => array (
 			'comment_insert_type',
 			'comment_insert_content',
-			'comment_insert_from',
 			'comment_insert_at',
+			'comment_insert_from',
+			'comment_insert_for',
 		),
 	);
 
@@ -171,7 +210,7 @@ function init () {
 			\add_filter (
 				$for,
 				"\\WP_FLATEXPORTS\\{$filter}",
-				10 * ( $k + 1 ),
+				5 * ( $k + 1 ), // this will let other steps to be added
 				2
 			);
 		}
@@ -181,6 +220,8 @@ function init () {
 
 	if (!wp_get_schedule( 'wp_flatexport' ))
 		wp_schedule_event ( time(), 'daily', 'wp_flatexport' );
+
+
 }
 
 /**
@@ -206,9 +247,9 @@ function depthmap () {
 	return array (
 		1 => "=", // asciidoc, restuctured text, and markdown compatible
 		2 => "-", // asciidoc, restuctured text, and markdown compatible
-		3 => "~", // asciidoc only
-		4 => "^", // asciidoc only
-		5 => "+", // asciidoc only
+		//3 => "~", // asciidoc only
+		//4 => "^", // asciidoc only
+		//5 => "+", // asciidoc only
 	);
 }
 
@@ -218,13 +259,16 @@ function depthmap () {
 function _insert_head ( $title, $depth = 2 ) {
 	if ( $depth > 2 ) {
 		$prefix =  str_repeat( "#", $depth );
-		$r = "\n\n{$prefix} {$title}\n";
+		$r = "\n\n{$prefix} {$title}";
 	}
 	else {
 		$map = depthmap();
 		$underline =  str_repeat( $map[ $depth ], mb_strlen( $title) );
-		$r = "\n\n{$title}\n${underline}\n";
+		$r = "\n\n{$title}\n${underline}";
 	}
+
+	if ( $depth > 1 )
+		$r .= "\n";
 
 	return $r;
 
@@ -281,7 +325,46 @@ function txt_insert_uuid ( $text, $post ) {
  *
  * extends the $text with
  *
- * \n\n (post excerpt)
+ * Attachments
+ * -----------
+ *
+ *
+ *
+ */
+function txt_insert_attachments ( $text, $post ) {
+
+	// get all the attachments
+	$attachments = \get_children( array (
+		'post_parent'=>$post->ID,
+		'post_type'=>'attachment',
+		'orderby'=>'menu_order',
+		'order'=>'asc'
+	));
+
+	if ( empty( $attachments ) )
+		return $text;
+
+	$text .= _insert_head( "Attachments" );
+	$a = array();
+	foreach ( $attachments as $aid => $attachment ) {
+		$attachment_path = \get_attached_file( $aid );
+		if ( empty( $attachment_path ) || ! is_file( $attachment_path ) )
+			continue;
+
+		array_push( $a, "- " . basename( $attachment_path ) );
+	}
+
+	$text .= join( "\n", $a );
+
+	return $text;
+
+}
+
+/**
+ *
+ * extends the $text with
+ *
+ * \n (post excerpt)
  */
 function txt_insert_excerpt ( $text, $post ) {
 
@@ -298,7 +381,7 @@ function txt_insert_excerpt ( $text, $post ) {
  *
  * extends the $text with
  *
- * \n\n (post content)
+ * \n (post content)
  */
 function txt_insert_content ( $text, $post ) {
 	$content = apply_filters(
@@ -319,8 +402,8 @@ function txt_insert_content ( $text, $post ) {
  *
  * Published
  * ---------
- * initial - (post publish date in Y-m-d H:i:s P format)
- * [current - (post last update date in Y-m-d H:i:s P format)]
+ * - (post publish date in Y-m-d H:i:s P format)
+ * [- (post last update date in Y-m-d H:i:s P format)]
  */
 function txt_insert_published ( $text, $post ) {
 
@@ -363,7 +446,10 @@ function txt_insert_urls ( $text, $post ) {
 	return $text;
 }
 
-
+/**
+ * get all urls that are pointing to this very post, including syndications
+ *
+ */
 function list_urls ( $post ) {
 
 	// basic ones
@@ -373,7 +459,7 @@ function list_urls ( $post ) {
 
 	// eliminate revisions
 	foreach ( $slugs as $k => $slug ) {
-		if ( preg_match ( '/-revision-v[0-9]+/', $slug ) ) {
+		if ( preg_match ( '/-(revision|autosave)-v?[0-9]+/', $slug ) ) {
 			unset ( $slugs[ $k ] );
 			continue;
 		}
@@ -424,8 +510,7 @@ function list_urls ( $post ) {
  * Author
  * ------
  * Author Display Name [<author@email>]
- * avatar URL
- * [ author URL ]
+ * author URLs
  */
 function txt_insert_author ( $text, $post ) {
 
@@ -438,6 +523,7 @@ function txt_insert_author ( $text, $post ) {
 	if ( $author_email = \get_the_author_meta ( 'email' , $author_id ) )
 		$author .= " <{$author_email}>";
 
+	/*
 	$thid = get_user_option ( 'metronet_image_id', $author_id );
 	if ( $thid ) {
 		$image = wp_get_attachment_image_src ( $thid, 'thumbnail' );
@@ -447,10 +533,12 @@ function txt_insert_author ( $text, $post ) {
 		$avatar = gravatar ( $author_email );
 	}
 	$author .= "\n${avatar}";
+	*/
 
 	if ( $author_url = \get_the_author_meta ( 'url' , $author_id ) )
-		$author .= " \n- {$author_url}";
+		$author .= "\n{$author_url}";
 
+	/*
 	$socials = array (
 		'github'   => 'https://github.com/%s',
 		'flickr'   => 'https://www.flickr.com/people/%s',
@@ -463,7 +551,7 @@ function txt_insert_author ( $text, $post ) {
 		if ( !empty($socialmeta) )
 			$author .= "\n- " . sprintf ( $pattern, $socialmeta );
 	}
-
+	*/
 
 	$text .= _insert_head ( "Author" );
 	$text .= "{$author}";
@@ -523,7 +611,7 @@ function txt_insert_location ( $text, $post ) {
 
 	$alt = \get_post_meta ( $post->ID, 'geo_altitude' , true );
 	if ( !empty( $alt ) )
-		$geo .= "@{$alt}";
+		$geo .= ",{$alt}";
 
 
 	$text .= _insert_head ( "Location" );
@@ -531,6 +619,86 @@ function txt_insert_location ( $text, $post ) {
 
 	return $text;
 }
+
+/**
+ *
+ *
+function md_insert_meta ( $text, $post ) {
+
+	$author_id = $post->post_author;
+
+	$raw_tags = \wp_get_post_terms( $post->ID, 'post_tag' );
+	$tags = array();
+	foreach ( $raw_tags as $k => $tag ) {
+		array_push( $tags, $tag->name );
+	}
+	array_unique( $tags );
+
+	$aliases = list_urls( $post );
+	$aliases_ = array();
+	foreach ( $aliases as $k => $alias ) {
+		$alias = str_replace( rtrim( site_url(), '/' ), '', $alias );
+		if ( trim( $alias, '/' ) != $post->post_name )
+			array_push( $aliases_, $alias );
+	}
+
+	$attachments = \get_children( array (
+		'post_parent'=>$post->ID,
+		'post_type'=>'attachment',
+		'orderby'=>'menu_order',
+		'order'=>'asc'
+	));
+
+	$a = array();
+	foreach ( $attachments as $aid => $attachment ) {
+		$attachment_path = \get_attached_file( $aid );
+		if ( ! empty( $attachment_path ) && is_file( $attachment_path ) )
+			array_push( $a, basename( $attachment_path ) );
+	}
+
+
+	$meta = [
+		'author' => [
+			'name' => \get_the_author_meta ( 'display_name' , $author_id ),
+			'email' => \get_the_author_meta ( 'email' , $author_id ),
+			'URL' => $author_url = \get_the_author_meta ( 'url' , $author_id ),
+		],
+		'date' => \get_the_time( 'Y-m-d H:i:s P', $post->ID ),
+		'tags' => $tags,
+		'title' => $post->post_title,
+		'url' => $post->post_name,
+		'id' => $post->ID,
+		'aliases' => $aliases_,
+		'attachments' => $a,
+		'uuid' => hash ( 'md5',
+			(int)$post->ID + (int) get_post_time('U', true, $post->ID )
+		),
+	];
+
+	$published = \get_the_time( 'U', $post->ID );
+	$modified = \get_the_modified_time( 'U', $post->ID );
+	if ( $published != $modified && $modified > $published )
+		$meta['modified'] = date( 'Y-m-d H:i:s P', $modified );
+
+	// geo
+	$lat = \get_post_meta ( $post->ID, 'geo_latitude' , true );
+	$lon = \get_post_meta ( $post->ID, 'geo_longitude' , true );
+	$alt = \get_post_meta ( $post->ID, 'geo_altitude' , true );
+
+	if ( ! empty( $lat ) && empty( $lon ) ) {
+		$meta['location'] = [
+			'latitude' => $lat,
+			'longitude' => $lon,
+		];
+		if ( ! empty( $alt ) ) {
+			$meta['location']['altitude'] = $alt;
+		}
+	}
+
+	$meta = apply_filters( 'wp_flatexport_md_meta', $meta, $post, $text );
+	return "\n\n" . yaml_emit(  $meta  ) . $text;
+}
+*/
 
 /**
  *
@@ -550,13 +718,13 @@ function comment_insert_from ( $c, $comment ) {
 	if ( ! empty( $comment->comment_author_email ) )
 		$c .= " <{$comment->comment_author_email}>";
 
-	if ( $avatar = \get_comment_meta ($comment->comment_ID, "avatar", true))
-		$c .= "\n{$avatar}";
-	elseif ( ! empty( $comment->comment_author_email ) )
-		$c .= "\n". gravatar ( $comment->comment_author_email );
+	//if ( $avatar = \get_comment_meta ($comment->comment_ID, "avatar", true))
+		//$c .= "\n{$avatar}";
+	//elseif ( ! empty( $comment->comment_author_email ) )
+		//$c .= "\n". gravatar ( $comment->comment_author_email );
 
 	if ( ! empty( $comment->comment_author_url ))
-		$c .= "\n{$comment->comment_author_url}";
+		$c .= "\n- {$comment->comment_author_url}";
 
 	return $c;
 }
@@ -578,6 +746,25 @@ function comment_insert_type ( $c, $comment ) {
 
 	return $c;
 }
+
+/**
+ *
+ * extends the $text with
+ *
+ * For
+ * ---
+ * original post URL
+ *
+ */
+function comment_insert_for ( $c, $comment ) {
+	$c .= _insert_head( "For" );
+	$postid = $comment->comment_post_ID;
+	$url = get_permalink( $postid );
+	$c .= $url;
+
+	return $c;
+}
+
 
 /**
  *
@@ -772,37 +959,12 @@ function post_content_url2footnote ( $content, $post ) {
 }
 
 /**
- * export with pandoc
- *
- *
-function post_content_pandoc ( $content, $post ) {
-	$flatroot = \WP_CONTENT_DIR . DIRECTORY_SEPARATOR . basedir;
-	$flatdir = $flatroot . DIRECTORY_SEPARATOR . $post->post_name;
-	$pandoc = $flatdir . DIRECTORY_SEPARATOR . pandocfile;
-
-	$tmp = tempnam ( sys_get_temp_dir() , __NAMESPACE__ );
-	file_put_contents( $tmp, $post->post_content );
-
-	$cmd =
-		"/usr/bin/pandoc -p -f markdown_phpextra -t asciidoc -o {$pandoc} {$tmp}";
-	//exec( $cmd, $exif, $retval);
-	passthru ( $cmd );
-
-	unlink ( $tmp );
-
-	return $content;
-}
-*/
-
-/**
  * find markdown links and replace them with footnote versions
  *
  */
 function post_content_fix_emstrong ( $content, $post ) {
 
 	// these regexes are borrowed from https://github.com/erusev/parsedown
-
-
 	$invalid = array (
 		'strong' => array(
 			//'**' => '/[*]{2}((?:\\\\\*|[^*]|[*][^*]*[*])+?)[*]{2}(?![*])/s',
@@ -904,7 +1066,6 @@ function post_content_setext_headers ( $content, $post ) {
  *
  */
 function post_content ( &$post ) {
-
 	return trim (
 		apply_filters (
 			'wp_flatexport_content',
@@ -939,11 +1100,48 @@ function export_all () {
 /**
  *
  */
-function export_auto ( $new_status = null , $old_status = null, $post = null ) {
+function export_auto ( $new_status = null , $old_status = null,
+	$post = null ) {
 	if (  null === $new_status || null === $old_status || null === $post )
 		return;
 
 	export ( $post );
+}
+
+function export_attachments( $attachments, $post ) {
+
+	// hardlink all the attachments; no need for copy
+	// unless you're on a filesystem that does not support hardlinks, then copy
+	foreach ( $attachments as $aid => $attachment ) {
+		$attachment_path = \get_attached_file( $aid );
+		if ( empty( $attachment_path ) || ! is_file( $attachment_path ) )
+			continue;
+
+		$attachment_file = basename( $attachment_path);
+		$target_file = FILESROOT . $attachment_file;
+		//$target_file = dirname( post_filename( $post ) ) . DIRECTORY_SEPARATOR . $attachment_file;
+		debug ( "exporting {$attachment_file}", 6 );
+
+		if ( is_file( $target_file ) ) {
+			debug ( "{$target_file} already exists", 7 );
+			continue;
+		}
+
+		if ( link( $attachment_path, $target_file ) ) {
+			debug ( "{$attachment_path} was hardlinked to {$target_file}", 7 );
+			continue;
+		}
+		else {
+			if ( copy( $attachment_path, $target_file ) ) {
+				debug ( "{$attachment_path} was copied to {$target_file}", 7 );
+				continue;
+			}
+			else {
+				debug( "could not link or copy '{$attachment_path}'"
+					. " to '{$target_file}'; saving attachment failed!", 4);
+			}
+		}
+	}
 }
 
 /**
@@ -961,30 +1159,14 @@ function export ( $post = null ) {
 		return false;
 
 	// create directory structure
-	$filename = $post->post_name;
+	$flatfile = post_filename( $post );
 
-	$flatdir = \flatroot . DIRECTORY_SEPARATOR . $filename;
-	$flatfile = $flatdir . DIRECTORY_SEPARATOR . txtfile;
-	$mdfile = $flatdir . DIRECTORY_SEPARATOR . mdfile;
-
-	$post_timestamp = \get_the_modified_time( 'U', $post->ID );
+	$post_timestamp = \get_the_time( 'U', $post->ID );
 	$file_timestamp = 0;
 
 	if ( @file_exists($flatfile) ) {
 		$file_timestamp = @filemtime ( $flatfile );
 	}
-
-	$mkdir = array ( \flatroot, $flatdir );
-	foreach ( $mkdir as $dir ) {
-		if ( !is_dir($dir)) {
-			if (!mkdir( $dir )) {
-				debug ('Failed to create ' . $dir . ', exiting export', 4);
-				return false;
-			}
-		}
-	}
-
-	touch($flatdir, $post_timestamp);
 
 	// get all the attachments
 	$attachments = \get_children( array (
@@ -994,33 +1176,8 @@ function export ( $post = null ) {
 		'order'=>'asc'
 	));
 
-	// 100 is there for sanity
-	// hardlink all the attachments; no need for copy
-	// unless you're on a filesystem that does not support hardlinks
-	if ( !empty($attachments) && count($attachments) < maxattachments ) {
-		$out['attachments'] = array();
-		foreach ( $attachments as $aid => $attachment ) {
-			$attachment_path = \get_attached_file( $aid );
-			$attachment_file = basename( $attachment_path);
-			$target_file = $flatdir . DIRECTORY_SEPARATOR . $attachment_file;
-			debug ( "exporting {$attachment_file} for {$post->post_name}", 7 );
-
-			if ( is_file( $target_file ) )
-				continue;
-
-			if ( link( $attachment_path, $target_file ) )
-				continue;
-			else
-				debug( "could not hardlink '{$attachment_path}'"
-					. " to '{$target_file}'; trying to copy", 5);
-
-			if ( copy( $attachment_path, $target_file ) )
-				continue;
-			else
-				debug( "could not copy '{$attachment_path}'"
-					. " to '{$target_file}'; saving attachment failed!", 4);
-
-		}
+	if ( ! empty( $attachments ) ) {
+		export_attachments( $attachments, $post );
 	}
 
 	// deal with comments
@@ -1033,23 +1190,20 @@ function export ( $post = null ) {
 
 	// in case our export is fresh or we're not forcing updates on each and
 	// every time, walk away from this post
-	if ( $file_timestamp == $post_timestamp && force == false ) {
+	if ( $file_timestamp == $post_timestamp && FORCE == false ) {
 		return true;
 	}
 
 	$txt = trim ( apply_filters ( 'wp_flatexport_txt', "", $post ) ) . "\n\n";
+
+	//$txt = trim ( apply_filters ( 'wp_flatexport_md', "", $post ) ) . "\n\n";
 
 	// write log
 	debug ( "Exporting #{$post->ID}, {$post->post_name} to {$flatfile}", 6 );
 	file_put_contents ($flatfile, $txt);
 	touch ( $flatfile, $post_timestamp );
 
-	//$md = trim ( apply_filters ( 'wp_flatexport_md', "", $post ) );
-
-	// write log
-	//debug ( "Exporting #{$post->ID}, {$post->post_name} to {$mdfile}", 6 );
-	//file_put_contents ($mdfile, $md);
-	//touch ( $mdfile, $post_timestamp );
+	touch ( dirname( $flatfile), $post_timestamp );
 
 	return $txt;
 }
@@ -1058,21 +1212,19 @@ function export ( $post = null ) {
  *
  */
 function export_comment ( $post, $comment ) {
-	$filename = $post->post_name;
-	$flatdir = flatroot . DIRECTORY_SEPARATOR . $filename;
+	$flatdir = dirname( post_filename( $post ) );
 
-	$cfile = "comment_{$comment->comment_ID}.txt";
-	$cfile = $flatdir . DIRECTORY_SEPARATOR . $cfile;
+	$c_timestamp = strtotime( $comment->comment_date );
+	$cfile = date( 'Y-m-d-H-i-s', $c_timestamp ) . '.md';
+	$cfile = COMMENTROOT . $cfile;
 
 	$cf_timestamp = 0;
-	$c_timestamp = strtotime( $comment->comment_date );
-
 	if ( @file_exists($cfile) ) {
 		$cf_timestamp = @filemtime ( $cfile );
 	}
 
 	// non force mode means skip existing
-	if ( $c_timestamp == $cf_timestamp && force == false ) {
+	if ( $c_timestamp == $cf_timestamp && FORCE == false ) {
 		return;
 	}
 
@@ -1083,58 +1235,6 @@ function export_comment ( $post, $comment ) {
 	touch ( $cfile, $c_timestamp );
 }
 
-function meta_add_location ( $meta, $post ) {
-	return $meta;
-}
-
-/**
- *
- */
-function md_insert_meta ( $md, $post ) {
-	if ( ! extension_loaded( 'yaml') || ! function_exists( 'yaml_emit') )
-		return $md;
-
-	$meta = [];
-
-	$tags = \wp_get_post_terms( $post->ID, 'post_tag' );
-	foreach ( $tags as $k => $tag ) {
-		$tags[ $k ] = "{$tag->name}";
-	}
-
-	$urls = list_urls( $post );
-	$permalink = \get_permalink( $post );
-	foreach ( $urls as $k => $url ) {
-
-		if ( ! strstr( $url, site_url() ) )
-			unset ( $urls[ $k ] );
-
-		if ( strstr ( $permalink, $url ) )
-			unset ( $urls[ $k ] );
-
-		$urls[ $k ] = str_replace ( rtrim( site_url() . '/' ), '/', $url );
-	}
-
-	$meta = [
-		'title' => $post->post_title,
-		'description' => strip_tags($post->post_excerpt),
-		'publish_date' => \get_the_time( 'Y-m-d H:i:s P', $post->ID ),
-		'tags' => $tags,
-		'slug' => $post->post_name,
-		'url' => $permalink,
-		'published' => 'true',
-		'routes' => [
-			'canonical' => str_replace ( rtrim( site_url() . '/' ), '/', $permalink ),
-			'aliases' => $urls
-		]
-	];
-
-	$meta = apply_filters( 'wp_flatexport_meta', $meta, $post );
-	$meta = yaml_emit( $meta );
-
-	return "{$meta}{$md}";
-}
-
-
 /**
  * generate gravatar img link
  */
@@ -1144,39 +1244,6 @@ function gravatar ( $email ) {
 		md5( strtolower( trim( $email ) ) )
 	);
 }
-
-/**
- *
- *
-function on_publish( $new_status, $old_status, $post ) {
-	$post = fix_post ( $post );
-
-	if ( false === $post )
-		return false;
-
-	$content = export( $post );
-
-	if ( $post->post_content_filtered == $export )
-		return true;
-
-	global $wpdb;
-	$dbname = "{$wpdb->prefix}posts";
-	$req = false;
-
-	debug("Updating post content for #{$post->ID}", 5);
-
-	$q = $wpdb->prepare( "UPDATE `{$dbname}` SET `post_content_filtered`='%s' WHERE `ID`='{$post->ID}'", $content );
-
-	try {
-		$req = $wpdb->query( $q );
-	}
-	catch (Exception $e) {
-		debug('Something went wrong: ' . $e->getMessage(), 4);
-	}
-
-	return true;
-}
-*/
 
 /**
  * do everything to get the Post object
