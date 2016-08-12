@@ -3,7 +3,7 @@
 Plugin Name: WP Flat Export
 Plugin URI: https://github.com/petermolnar/wp-flatexport
 Description: auto-export WordPress flat, structured, readable plain text
-Version: 0.5
+Version: 0.6
 Author: Peter Molnar <hello@petermolnar.net>
 Author URI: http://petermolnar.net/
 License: GPLv3
@@ -27,21 +27,19 @@ License: GPLv3
 
 namespace WP_FLATEXPORTS;
 
-require (__DIR__ . '/vendor/autoload.php');
-use KzykHys\FrontMatter\FrontMatter;
+//require (__DIR__ . '/vendor/autoload.php');
+//use KzykHys\FrontMatter\FrontMatter;
+//use KzykHys\FrontMatter\Document;
 
-define ( 'WP_FLATEXPORTS\FORCE', false );
+define ( 'WP_FLATEXPORTS\FORCE', true );
 define ( 'WP_FLATEXPORTS\ROOT', \WP_CONTENT_DIR . DIRECTORY_SEPARATOR
 	. 'flat' . DIRECTORY_SEPARATOR );
-define ( 'WP_FLATEXPORTS\FLATROOT', ROOT . 'posts'
-	. DIRECTORY_SEPARATOR );
-define ( 'WP_FLATEXPORTS\FILESROOT', ROOT . 'files'
+define ( 'WP_FLATEXPORTS\POSTSROOT', ROOT . 'post'
 	. DIRECTORY_SEPARATOR );
 define ( 'WP_FLATEXPORTS\COMMENTROOT', ROOT . 'comments'
 	. DIRECTORY_SEPARATOR );
-define ( 'WP_FLATEXPORTS\TXTFILE', 'index.txt' );
-define ( 'WP_FLATEXPORTS\MDFILE', 'index.md' );
-//define ( 'WP_FLATEXPORTS\HTMLFILE', 'index.html' );
+define ( 'WP_FLATEXPORTS\FILESROOT', ROOT . 'files'
+	. DIRECTORY_SEPARATOR );
 
 \register_activation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_activate' );
 \register_deactivation_hook( __FILE__ , '\WP_FLATEXPORTS\plugin_deactivate' );
@@ -59,76 +57,34 @@ define ( 'WP_FLATEXPORTS\MDFILE', 'index.md' );
 \add_action( 'template_redirect', '\WP_FLATEXPORTS\display' );
 
 //
-//\add_action( 'wp', '\WP_FLATEXPORTS\export' );
+\add_action( 'wp', '\WP_FLATEXPORTS\export' );
 
-// this is to capture the complete, rendered HTML
-// fired on post visit, sadly; for WordPress, there seems to be no other way
-// to properly trigger this
-//export_html_init();
+/**
+ *
+ */
+function post_filename ( &$post, $ext = 'md' ) {
+	//$timestamp = \get_the_time( 'U', $post->ID );
+	//$date = date( 'Y-m-d', $timestamp );
+	//if ( empty( $date ) )
+		//die ( json_encode( $post ) );
 
-function post_filename ( &$post, $ext = TXTFILE ) {
-	$timestamp = \get_the_time( 'U', $post->ID );
-	$date = date( 'Y-m-d', $timestamp );
-	if ( empty( $date ) )
-		die ( json_encode( $post ) );
-
-	//$dir = FLATROOT . $date . '-' . $post->post_name;
-	////$dir = FLATROOT . $post->post_name;
-
-	//if ( ! is_dir( $dir ) )
-		//if ( ! mkdir( $dir ) )
-			//die ( "could not create {$dir} - that is bad, so we die now." );
-
-	//touch ( $dir, $timestamp );
-
-	//return $dir . DIRECTORY_SEPARATOR . $ext;
-	return FLATROOT . $date . '-' . $post->post_name . '.md';
+	return POSTSROOT . $post->post_name . '.' . $ext;
 }
 
 /**
  *
- *
-function export_html_init( ) {
-	ob_start( '\WP_FLATEXPORTS\export_html' );
-}
-*/
-
-
-/**
- *
- *
-function export_html( $buffer ) {
-	$buffer = trim($buffer);
-
-	// skipping all collector pages and avoid rendering wp-admin-bar by skipping
-	// logged in users
-	if ( ! is_singular() || is_user_logged_in() )
-		return $buffer;
-
-	$post = fix_post();
-
-	if ( $post === false )
-		return $buffer;
-
-	$f = post_filename( $post, HTMLFILE );
-	$post_timestamp = \get_the_modified_time( 'U', $post->ID );
-	$file_timestamp = 0;
-
-	if ( @file_exists( $f ) ) {
-		$file_timestamp = @filemtime ( $f );
-		if ( $file_timestamp == $post_timestamp && FORCE == false ) {
-			return $buffer;
+ */
+function check_rootdirs() {
+	$dirs = [ POSTSROOT, FILESROOT, COMMENTROOT ];
+	foreach ( $dirs as $dir ) {
+		$dir = rtrim( $dir, '/' );
+		if ( ! is_dir( $dir  ) ) {
+			if ( ! mkdir( $dir ) ) {
+				die ( "Could not create " . $dir . "directory" );
+			}
 		}
 	}
-
-	//$buffer = post_content_clean_uploaddir( $buffer, $post );
-
-	file_put_contents( $f, $buffer );
-	touch ( $f, $post_timestamp );
-
-	return trim($buffer);
 }
-*/
 
 /**
  * activate hook
@@ -138,15 +94,7 @@ function plugin_activate() {
 		die( 'The minimum PHP version required for this plugin is 5.3' );
 	}
 
-	$dirs = [ FLATROOT, FILESROOT ];
-	foreach ( $dirs as $dir ) {
-		$dir = rtrim( $dir, '/' );
-		if ( ! is_dir( $dir  ) ) {
-			if ( ! mkdir( $dir ) ) {
-				die ( "Could not create " . $dir . "directory" );
-			}
-		}
-	}
+	check_rootdirs();
 }
 
 /**
@@ -163,11 +111,6 @@ function plugin_deactivate() {
 function init () {
 
 	$filters = array (
-		'wp_flatexport_md' => array (
-			'md_insert_meta',
-			//'txt_insert_excerpt',
-			'txt_insert_content',
-		),
 		'wp_flatexport_txt' => array (
 			'txt_insert_title',
 			'txt_insert_excerpt',
@@ -182,20 +125,15 @@ function init () {
 		),
 		'wp_flatexport_content' => array (
 			'post_content_resized2orig',
-			'post_content_clean_uploaddir',
 			'post_content_insert_featured',
+			'post_content_absolute_images',
 			'post_content_clear_imgids',
-			//'post_content_pandoc',
 			'post_content_fix_emstrong',
 			'post_content_fix_dl',
 			'post_content_fix_surprises',
 			'post_content_url2footnote',
 			'post_content_setext_headers',
-			//'post_content_urls',
 		),
-		//'wp_flatexport_meta' => array (
-			//'meta_add_location',
-		//),
 		'wp_flatexport_comment' => array (
 			'comment_insert_type',
 			'comment_insert_content',
@@ -207,12 +145,7 @@ function init () {
 
 	foreach ( $filters as $for => $subfilters ) {
 		foreach ( $subfilters as $k => $filter ) {
-			\add_filter (
-				$for,
-				"\\WP_FLATEXPORTS\\{$filter}",
-				5 * ( $k + 1 ), // this will let other steps to be added
-				2
-			);
+			\add_filter ( $for, "\\WP_FLATEXPORTS\\$filter", 5 * ( $k + 1 ), 2 );
 		}
 	}
 
@@ -283,7 +216,8 @@ function _insert_head ( $title, $depth = 2 ) {
  */
 function txt_insert_title ( $text, $post ) {
 
-	$title = trim( \get_the_title( $post->ID ) );
+	$title = trim( $post->post_title );
+	debug ( $title );
 
 	if ( empty( $title ) )
 		return $text;
@@ -384,6 +318,7 @@ function txt_insert_excerpt ( $text, $post ) {
  * \n (post content)
  */
 function txt_insert_content ( $text, $post ) {
+
 	$content = apply_filters(
 		'wp_flatexport_content',
 		trim( $post->post_content ),
@@ -452,54 +387,59 @@ function txt_insert_urls ( $text, $post ) {
  */
 function list_urls ( $post ) {
 
-	// basic ones
+	$urls = array();
 	$slugs = \get_post_meta ( $post->ID, '_wp_old_slug' );
 	array_push ( $slugs, $post->post_name );
 	array_push ( $slugs, $post->ID );
 
 	// eliminate revisions
 	foreach ( $slugs as $k => $slug ) {
-		if ( preg_match ( '/-(revision|autosave)-v?[0-9]+/', $slug ) ) {
-			unset ( $slugs[ $k ] );
+		if ( preg_match ( '/-(revision|autosave)-v?[0-9]+/', $slug ) )
 			continue;
-		}
 
 		// make them real URLs
 		// site_url does not allow numbers only as slugs, so we're doing it the
 		// hard way
-		$slugs[ $k ] = rtrim ( \site_url( ), '/' ) . '/' . $slug;
+		array_push( $urls, rtrim ( \site_url( ), '/' ) . '/' . $slug );
 	}
 
 	// just in case these differ
-	array_push ( $slugs, \get_permalink( $post ) );
-	array_push ( $slugs, \wp_get_shortlink( $post->ID ) );
+	array_push ( $urls, \get_permalink( $post ) );
+	//array_push ( $slugs, \wp_get_shortlink( $post->ID ) );
 
 	// get syndicated URLs
 	$syndications = \get_post_meta ( $post->ID, 'syndication_urls', true );
 	if ( ! empty( $syndications ) )
-		$slugs = array_merge( $slugs, explode( "\n", trim( $syndications ) ) );
+		$urls = array_merge( $urls, explode( "\n", trim( $syndications ) ) );
 
+	$sorted = array();
 	// get rid of trailing slashes; it's either no trailing slash or slash on
 	// everything, which breaks .html-like real document path URLs
-	foreach ( $slugs as $k => $slug ) {
-		if ( ! strstr( $slug, 'http') ) {
-			unset ( $slugs[ $k ] );
+	foreach ( $urls as $k => $url ) {
+		if ( ! strstr( $url, 'http') )
 			continue;
-		}
-		$slugs[ $k ] = rtrim( $slug, '/' );
+		array_push( $sorted, rtrim( $url, '/' ) );
+	}
+
+
+
+	foreach ( $sorted as $c => $url ) {
+		$sorted[ $c ] = str_replace( 'http://', 'https://', $url );
 	}
 
 	// eliminate duplicates
-	$slugs = array_unique ( $slugs );
+	$sorted = array_unique ( $sorted );
 
 	// make it more readable
 	usort(
-		$slugs,
+		$sorted,
 		function ( $a, $b ) {
 			return strlen( $a ) - strlen( $b );
 		}
 	);
-	return $slugs;
+
+
+	return $sorted;
 }
 
 
@@ -523,35 +463,8 @@ function txt_insert_author ( $text, $post ) {
 	if ( $author_email = \get_the_author_meta ( 'email' , $author_id ) )
 		$author .= " <{$author_email}>";
 
-	/*
-	$thid = get_user_option ( 'metronet_image_id', $author_id );
-	if ( $thid ) {
-		$image = wp_get_attachment_image_src ( $thid, 'thumbnail' );
-		$avatar = \site_url( $image[0]);
-	}
-	else {
-		$avatar = gravatar ( $author_email );
-	}
-	$author .= "\n${avatar}";
-	*/
-
 	if ( $author_url = \get_the_author_meta ( 'url' , $author_id ) )
 		$author .= "\n{$author_url}";
-
-	/*
-	$socials = array (
-		'github'   => 'https://github.com/%s',
-		'flickr'   => 'https://www.flickr.com/people/%s',
-		'key' => '%s',
-	);
-
-	foreach ( $socials as $silo => $pattern ) {
-		$socialmeta = get_the_author_meta ( $silo , $author_id );
-
-		if ( !empty($socialmeta) )
-			$author .= "\n- " . sprintf ( $pattern, $socialmeta );
-	}
-	*/
 
 	$text .= _insert_head ( "Author" );
 	$text .= "{$author}";
@@ -622,86 +535,6 @@ function txt_insert_location ( $text, $post ) {
 
 /**
  *
- *
-function md_insert_meta ( $text, $post ) {
-
-	$author_id = $post->post_author;
-
-	$raw_tags = \wp_get_post_terms( $post->ID, 'post_tag' );
-	$tags = array();
-	foreach ( $raw_tags as $k => $tag ) {
-		array_push( $tags, $tag->name );
-	}
-	array_unique( $tags );
-
-	$aliases = list_urls( $post );
-	$aliases_ = array();
-	foreach ( $aliases as $k => $alias ) {
-		$alias = str_replace( rtrim( site_url(), '/' ), '', $alias );
-		if ( trim( $alias, '/' ) != $post->post_name )
-			array_push( $aliases_, $alias );
-	}
-
-	$attachments = \get_children( array (
-		'post_parent'=>$post->ID,
-		'post_type'=>'attachment',
-		'orderby'=>'menu_order',
-		'order'=>'asc'
-	));
-
-	$a = array();
-	foreach ( $attachments as $aid => $attachment ) {
-		$attachment_path = \get_attached_file( $aid );
-		if ( ! empty( $attachment_path ) && is_file( $attachment_path ) )
-			array_push( $a, basename( $attachment_path ) );
-	}
-
-
-	$meta = [
-		'author' => [
-			'name' => \get_the_author_meta ( 'display_name' , $author_id ),
-			'email' => \get_the_author_meta ( 'email' , $author_id ),
-			'URL' => $author_url = \get_the_author_meta ( 'url' , $author_id ),
-		],
-		'date' => \get_the_time( 'Y-m-d H:i:s P', $post->ID ),
-		'tags' => $tags,
-		'title' => $post->post_title,
-		'url' => $post->post_name,
-		'id' => $post->ID,
-		'aliases' => $aliases_,
-		'attachments' => $a,
-		'uuid' => hash ( 'md5',
-			(int)$post->ID + (int) get_post_time('U', true, $post->ID )
-		),
-	];
-
-	$published = \get_the_time( 'U', $post->ID );
-	$modified = \get_the_modified_time( 'U', $post->ID );
-	if ( $published != $modified && $modified > $published )
-		$meta['modified'] = date( 'Y-m-d H:i:s P', $modified );
-
-	// geo
-	$lat = \get_post_meta ( $post->ID, 'geo_latitude' , true );
-	$lon = \get_post_meta ( $post->ID, 'geo_longitude' , true );
-	$alt = \get_post_meta ( $post->ID, 'geo_altitude' , true );
-
-	if ( ! empty( $lat ) && empty( $lon ) ) {
-		$meta['location'] = [
-			'latitude' => $lat,
-			'longitude' => $lon,
-		];
-		if ( ! empty( $alt ) ) {
-			$meta['location']['altitude'] = $alt;
-		}
-	}
-
-	$meta = apply_filters( 'wp_flatexport_md_meta', $meta, $post, $text );
-	return "\n\n" . yaml_emit(  $meta  ) . $text;
-}
-*/
-
-/**
- *
  * extends the $c with
  *
  * From
@@ -724,7 +557,7 @@ function comment_insert_from ( $c, $comment ) {
 		//$c .= "\n". gravatar ( $comment->comment_author_email );
 
 	if ( ! empty( $comment->comment_author_url ))
-		$c .= "\n- {$comment->comment_author_url}";
+		$c .= "\n{$comment->comment_author_url}";
 
 	return $c;
 }
@@ -789,9 +622,41 @@ function comment_insert_at ( $c, $comment ) {
  */
 function comment_insert_content ( $c, $comment ) {
 	if ( ! empty( $comment->comment_content ) )
-		$c .= "\n\n" . $comment->comment_content . "\n";
+		$c .= "\n" . trim( $comment->comment_content ) . "\n";
 
 	return $c;
+}
+
+
+/**
+ *
+ */
+function post_content_absolute_images ( $content, $post ) {
+
+
+	$urlparts = parse_url( \site_url() );
+	$domain = $urlparts ['host'];
+	$wp_upload_dir = \wp_upload_dir();
+	$uploadurl = str_replace(
+		'/',
+		"\\/",
+		trim( str_replace(
+			\site_url(),
+			'',
+			$wp_upload_dir['url']
+		), '/')
+	);
+
+	$p = "/\((\/?{$uploadurl}\/.*?\.[a-zA-Z]{2,4})\)/i";
+	preg_match_all( $p, $content, $images );
+	if ( empty ( $images[1] ))
+		return $content;
+
+	foreach ( $images[1] as $imgstr ) {
+		$fname = site_url( $imgstr );
+		$content = str_replace ( $imgstr, $fname, $content );
+	}
+	return $content;
 }
 
 
@@ -827,8 +692,11 @@ function post_content_resized2orig ( $content, $post ) {
 			$fname = $resized_images[2][$cntr] . '.' . $resized_images[5][$cntr];
 			$width = $resized_images[3][$cntr];
 			$height = $resized_images[4][$cntr];
-			$r = $fname . '?resize=' . $width . ',' . $height;
-			$content = str_replace ( $imgstr, $r, $content );
+			//$r = $fname . '?resize=' . $width . ',' . $height;
+			if ( ! preg_match( '/https?:\/\//i', $fname ) )
+				$fname = site_url ( $fname );
+
+			$content = str_replace ( $imgstr, $fname, $content );
 		}
 	}
 
@@ -846,33 +714,13 @@ function post_content_resized2orig ( $content, $post ) {
 				else
 					$fname = $images[1][$cntr] . '.' . $images[2][$cntr];
 
+				if ( ! preg_match( '/https?:\/\//i', $fname ) )
+					$fname = site_url ( $fname );
+
 				$content = str_replace ( $imgstr, $fname, $content );
 			}
 		}
 	}
-
-	return $content;
-}
-
-/**
- * get rid of wp_upload_dir in self urls
- *
- */
-function post_content_clean_uploaddir ( $content, $post ) {
-
-	$urlparts = parse_url( \site_url() );
-	$domain = $urlparts ['host'];
-	$wp_upload_dir = \wp_upload_dir();
-	$uploadurl = str_replace(
-		'/',
-		"\\/",
-		trim( str_replace( \site_url(), '', $wp_upload_dir['url'] ), '/' )
-	);
-
-	$pattern = "/\({$wp_upload_dir['baseurl']}\/(.*?)\)/";
-	$search = str_replace( '/', '\/', $wp_upload_dir['baseurl'] );
-	$content = preg_replace( "/\({$search}\/(.*?)\)/", '(${1})', $content );
-
 
 	return $content;
 }
@@ -887,6 +735,7 @@ function post_content_insert_featured ( $content, $post ) {
 	if ( ! empty( $thid ) ) {
 		$src = \wp_get_attachment_image_src( $thid, 'full' );
 		if ( isset($src[0]) ) {
+			$url = \site_url( $src[0] );
 			$meta = \wp_get_attachment_metadata($thid);
 
 			if ( empty( $meta['image_meta']['title'] ) )
@@ -894,7 +743,7 @@ function post_content_insert_featured ( $content, $post ) {
 			else
 				$title = $meta['image_meta']['title'];
 
-			$featured = "\n\n![{$title}]({$src[0]}){#img-{$thid}}";
+			$featured = "\n\n![{$title}]({$url}){#img-{$thid}}";
 			$content .= apply_filters (
 				'wp_flatexport_featured_image',
 				$featured,
@@ -1029,6 +878,8 @@ function post_content_fix_dl ( $content, $post ) {
  */
 function post_content_fix_surprises  ( $content, $post ) {
 	$content = str_replace ( '&#039;', "'", $content );
+	$content = str_replace ( "\r\n", "\n", $content );
+	$content = str_replace ( "\n\r", "\n", $content );
 
 	return $content;
 }
@@ -1095,6 +946,17 @@ function export_all () {
 		export ( $post );
 	}
 
+	$args = [
+		'hierarchical' => 0,
+		'post_type' => 'page',
+		'post_status' => 'publish'
+	];
+
+	$posts = get_pages( $args );
+	foreach ( $posts as $post ) {
+		export ( $post, 'raw' );
+	}
+
 }
 
 /**
@@ -1147,7 +1009,9 @@ function export_attachments( $attachments, $post ) {
 /**
  *
  */
-function export ( $post = null ) {
+function export ( $post = null, $mode = 'normal' ) {
+
+	check_rootdirs();
 
 	if ( null === $post ) {
 		 if ( ! \is_singular() )
@@ -1194,9 +1058,14 @@ function export ( $post = null ) {
 		return true;
 	}
 
-	$txt = trim ( apply_filters ( 'wp_flatexport_txt', "", $post ) ) . "\n\n";
-
-	//$txt = trim ( apply_filters ( 'wp_flatexport_md', "", $post ) ) . "\n\n";
+	if ( $mode == 'raw' )
+		$txt = apply_filters (
+			'wp_flatexport_content',
+			trim( $post->post_content ),
+			$post
+		);
+	else
+		$txt = trim ( apply_filters ( 'wp_flatexport_txt', "", $post ) ) . "\n\n";
 
 	// write log
 	debug ( "Exporting #{$post->ID}, {$post->post_name} to {$flatfile}", 6 );
