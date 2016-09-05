@@ -1,15 +1,16 @@
 {
     "name": "petermolnar/wp-flatexport",
-    "description": "auto-export WordPress contents to folders and plain text + markdown files for longetivity and portability",
+    "description": "export WordPress content to Spress compatible text files",
     "require": {
-        "php": ">=5.4.0"
+        "php": ">=5.4.0",
+        "symfony/yaml": "^3.1"
     },
     "license": "GPLv3",
     "authors": [
         {
             "name": "Peter Molnar",
-            "email": "hello@petermolnar.eu",
-            "homepage": "https://petermolnar.eu"
+            "email": "hello@petermolnar.net",
+            "homepage": "https://petermolnar.net"
         }
     ]
 }
